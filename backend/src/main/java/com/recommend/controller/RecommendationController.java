@@ -92,7 +92,7 @@ public class RecommendationController {
     }
 
     private Long currentUserId(UserDetails userDetails) {
-        return userRepository.findByUsername(userDetails.getUsername())
+        return userRepository.findByUsernameIgnoreCase(userDetails.getUsername())
                 .orElseThrow(() -> new IllegalArgumentException("用户不存在"))
                 .getId();
     }

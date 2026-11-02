@@ -16,7 +16,7 @@
 
 数据来源
 --------
---source db          从 MySQL 读真实数据（user_ratings / user_behaviors / materials /
+--source db          从 PostgreSQL 读真实数据（user_ratings / user_behaviors / materials /
                      recommendation_feedback）
 --source synthetic   自动生成可控规模的合成数据，**不依赖数据库**
 
@@ -43,6 +43,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+from sqlalchemy import URL, create_engine
 
 from itemcf import compute_itemcf
 from metrics import evaluate
@@ -211,26 +212,24 @@ def synthesize(n_users: int, n_items: int, seed: int):
 # ---------------------------------------------------------------------------
 
 def load_from_db():
-    import pymysql  # 只在需要连库时导入
-
-    cfg = {
-        "host": os.getenv("DB_HOST", "localhost"),
-        "port": int(os.getenv("DB_PORT", "3306")),
-        "user": os.getenv("DB_USERNAME", "root"),
-        "password": os.getenv("DB_PASSWORD", ""),
-        "database": os.getenv("DB_NAME", "recommend_db"),
-        "charset": "utf8mb4",
-    }
-    conn = pymysql.connect(**cfg)
+    url = URL.create(
+        "postgresql+psycopg",
+        username=os.getenv("DB_USERNAME", "postgres"),
+        password=os.getenv("DB_PASSWORD", ""),
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        database=os.getenv("DB_NAME", "recommend_db"),
+    )
+    engine = create_engine(url)
     try:
         materials_df = pd.read_sql(
-            "SELECT id, title, description, tags FROM materials WHERE status = 'ACTIVE'", conn)
-        ratings_df = pd.read_sql("SELECT user_id, material_id, rating FROM user_ratings", conn)
-        behaviors_df = pd.read_sql("SELECT user_id, material_id, action FROM user_behaviors", conn)
+            "SELECT id, title, description, tags FROM materials WHERE status = 'ACTIVE'", engine)
+        ratings_df = pd.read_sql("SELECT user_id, material_id, rating FROM user_ratings", engine)
+        behaviors_df = pd.read_sql("SELECT user_id, material_id, action FROM user_behaviors", engine)
         feedback_df = pd.read_sql(
-            "SELECT user_id, material_id, feedback FROM recommendation_feedback", conn)
+            "SELECT user_id, material_id, feedback FROM recommendation_feedback", engine)
     finally:
-        conn.close()
+        engine.dispose()
     return materials_df, ratings_df, behaviors_df, feedback_df
 
 

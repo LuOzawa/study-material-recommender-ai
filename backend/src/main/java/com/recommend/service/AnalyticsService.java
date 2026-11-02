@@ -142,9 +142,9 @@ public class AnalyticsService {
         int safeDays = Math.max(7, Math.min(days, 365));
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
-                SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS day, action, COUNT(*) AS cnt
+                SELECT to_char(created_at, 'YYYY-MM-DD') AS day, action, COUNT(*) AS cnt
                 FROM user_behaviors
-                WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+                WHERE created_at >= CURRENT_DATE - ?
                 GROUP BY day, action
                 ORDER BY day ASC
                 """, safeDays - 1);
@@ -392,13 +392,12 @@ public class AnalyticsService {
     public Map<String, Object> cleanBehaviorLogs() {
         Number before = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM user_behaviors", Number.class);
         int removed = jdbcTemplate.update("""
-                DELETE ub1
-                FROM user_behaviors ub1
-                INNER JOIN user_behaviors ub2
-                    ON ub1.user_id = ub2.user_id
-                   AND ub1.material_id = ub2.material_id
-                   AND ub1.action = ub2.action
-                   AND ub1.id > ub2.id
+                DELETE FROM user_behaviors AS ub1
+                USING user_behaviors AS ub2
+                WHERE ub1.user_id = ub2.user_id
+                  AND ub1.material_id = ub2.material_id
+                  AND ub1.action = ub2.action
+                  AND ub1.id > ub2.id
                 """);
         Number after = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM user_behaviors", Number.class);
 

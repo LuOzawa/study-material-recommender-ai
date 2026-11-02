@@ -30,13 +30,14 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
 
     public Map<String, Object> login(LoginRequest request) {
+        String username = request.getUsername().trim();
         authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
+                new UsernamePasswordAuthenticationToken(username, request.getPassword()));
 
-        UserDetails userDetails = userDetailsService.loadUserByUsername(request.getUsername());
+        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
         String token = jwtUtil.generateToken(userDetails);
 
-        User user = userRepository.findByUsername(request.getUsername()).orElseThrow();
+        User user = userRepository.findByUsernameIgnoreCase(username).orElseThrow();
         upgradeLegacyPassword(user, request.getPassword());
 
         Map<String, Object> result = new HashMap<>();
@@ -48,17 +49,18 @@ public class AuthService {
     }
 
     public void register(RegisterRequest request) {
-        if (userRepository.existsByUsername(request.getUsername())) {
+        String username = request.getUsername().trim();
+        if (userRepository.existsByUsernameIgnoreCase(username)) {
             throw new IllegalArgumentException("用户名已存在");
         }
 
         String normalizedEmail = normalizeEmail(request.getEmail());
-        if (normalizedEmail != null && userRepository.existsByEmail(normalizedEmail)) {
+        if (normalizedEmail != null && userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
             throw new IllegalArgumentException("邮箱已注册");
         }
 
         User user = new User();
-        user.setUsername(request.getUsername());
+        user.setUsername(username);
         // 注意：必须经过 PasswordEncoder，切勿直接存明文
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setEmail(normalizedEmail);
@@ -71,7 +73,7 @@ public class AuthService {
     }
 
     public void resetPassword(ResetPasswordRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
+        User user = userRepository.findByUsernameIgnoreCase(request.getUsername().trim())
                 .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
 
         String userEmail = user.getEmail();

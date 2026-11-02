@@ -81,7 +81,7 @@ public class AdminController {
     @PostMapping("/materials/batch")
     public ApiResponse<Map<String, Integer>> batchImport(@RequestBody List<Map<String, Object>> materials,
                                                           @AuthenticationPrincipal UserDetails userDetails) {
-        Long adminId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long adminId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         int count = adminService.batchImport(materials, adminId);
         return ApiResponse.success(Map.of("imported", count));
     }
@@ -129,7 +129,7 @@ public class AdminController {
     }
 
     /**
-     * 资料热度计算对比：MySQL 单机聚合 vs Hadoop MapReduce（本地模式）。
+     * 资料热度计算对比：PostgreSQL 单机聚合 vs Hadoop MapReduce（本地模式）。
      *
      * <p>两条链路用同一份导出数据、同一套行为权重，输出 TopN 排行榜与耗时，
      * 并校验结果是否一致。用于论文里讨论「什么规模下才需要上 Hadoop」。</p>

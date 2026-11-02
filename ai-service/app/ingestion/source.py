@@ -1,6 +1,6 @@
 """Pull material snapshots from the Spring Boot backend.
 
-The backend owns moderation and the MySQL source of truth; the AI service only
+The backend owns moderation and the PostgreSQL source of truth; the AI service only
 mirrors ACTIVE materials.  Endpoint contract:
 
     GET /api/internal/ai/materials?page=0&size=100[&since=2026-01-01T00:00:00]

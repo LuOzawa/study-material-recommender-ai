@@ -11,9 +11,9 @@
 系统结合**协同过滤 + 矩阵分解 + 内容特征**四路算法生成个性化推荐，
 并用 **Hadoop HDFS** 做行为数据的离线归档与训练集导出。
 
-- **后端**：Spring Boot 3.2.3（Java 17）+ Spring Security + JWT + Spring Data JPA + MySQL 8
+- **后端**：Spring Boot 3.2.3（Java 17）+ Spring Security + JWT + Spring Data JPA + PostgreSQL 16
 - **前端**：Vue 3 + Vite 5 + Element Plus + Pinia + Vue Router + ECharts
-- **推荐引擎**：Python 3.8+（pandas / scikit-learn / numpy），UserCF + ItemCF + TF-IDF + SVD 加权融合，含离线评测（留一法 + Top-K）
+- **推荐引擎**：Python 3.11+（pandas / scikit-learn / numpy），UserCF + ItemCF + TF-IDF + SVD 加权融合，含离线评测（留一法 + Top-K）
 - **大数据**：Hadoop 3.3.6 —— HDFS 归档 + 定时导出按天分区 CSV + **MapReduce 热度聚合作业**（本地模式实测）
 - **AI 服务**：FastAPI + **LangGraph** 智能体（意图路由 → pgvector 检索 → 相关性评分 → 查询改写 → 带引用作答）+ **vLLM** 自托管推理（Qwen2.5-7B-Instruct + bge-m3）
 - **向量库**：PostgreSQL 16 + **pgvector**（HNSW 索引、余弦距离）
@@ -67,7 +67,7 @@
 | --- | --- | --- | --- |
 | 1 | 「用 200 个用户做了评测」 | 「4 个真实用户 + 200 个**按学科偏好规则生成的模拟用户**」 | 老师说"你这 200 个用户哪来的"，如果答不上来，整章实验都不成立 |
 | 2 | 「用 Hadoop 做了分布式计算」 | 「实现了 MapReduce 作业，在**本地模式**（`LocalJobRunner`）验证；**未部署真实集群**」 | 本地模式只是同一套 API 跑在单机，和"分布式"不是一回事 |
-| 3 | 「Hadoop 提升了性能」 | 「实测在当前 3 千~29 万行规模下，MapReduce **比 MySQL 慢 5~500 倍**；Hadoop 的收益要等数据量超出单机能力才出现」 | 第五节有实测表。硬说更快，一问细节就露 |
+| 3 | 「Hadoop 提升了性能」 | 「实测在当前 3 千~29 万行规模下，MapReduce **比 PostgreSQL 慢 5~500 倍**；Hadoop 的收益要等数据量超出单机能力才出现」 | 第五节有实测表。硬说更快，一问细节就露 |
 
 补充两处需要区分的小点：
 
@@ -150,7 +150,7 @@ python seed_synthetic_users.py --users 200        # 加 --apply 才真写
                        └───┬────────┬─────────┬───┘
                            │        │         │ X-Internal-Token
               ┌────────────▼──┐ ┌───▼────┐ ┌──▼─────────────────┐
-              │   MySQL 8     │ │ HDFS   │ │ FastAPI  :8090     │
+              │ PostgreSQL 16 │ │ HDFS   │ │ FastAPI  :8090     │
               │ 业务数据/推荐  │ │ 3.3.6  │ │ LangGraph Agent    │
               └───────────────┘ └────────┘ │ 路由→检索→评分→改写 │
                            ▲               │ →作答（带引用）     │
@@ -223,8 +223,9 @@ python seed_synthetic_users.py --users 200        # 加 --apply 才真写
 │   └── tests/                            #   30 个 pytest 用例（含真实 pgvector）
 │
 ├── sql/
-│   ├── init.sql                              # 完整建库脚本（⚠️ 见文件头警示：会 DROP 重建）
-│   └── user_preferences.sql              # 推荐偏好表（幂等，可重复执行）
+│   ├── schema.sql                        # 12 张表 DDL（⚠️ 会 DROP 重建）
+│   ├── seed.sql                          # 种子数据（事务内导入）
+│   └── init.sql                          # psql 包装：schema + seed
 │
 ├── docs/
 │   ├── 功能清单.md                       # 原始任务书功能拆解
@@ -250,7 +251,7 @@ python seed_synthetic_users.py --users 200        # 加 --apply 才真写
 ### 3.2 融合流程（`run_recommendation.py`）
 
 ```
-读取 MySQL：user_ratings / user_behaviors / materials
+读取 PostgreSQL：user_ratings / user_behaviors / materials
         │
         ├─ UserCF  ─┐
         ├─ ItemCF  ─┤
@@ -339,7 +340,7 @@ python seed_synthetic_users.py --users 200        # 加 --apply 才真写
 cd recommendation
 
 # 真实数据（需要数据库；只做 SELECT，不写库）
-export DB_PASSWORD='你的MySQL口令'
+export DB_PASSWORD='你的PostgreSQL口令'
 python evaluate_offline.py --source db
 
 # 合成数据（不依赖数据库，可复现，适合出稳定的对比表）
@@ -520,10 +521,10 @@ POST /api/admin/hadoop/benchmark?topN=10   # 跑对比
 
 两条链路用同一份导出数据、同一套权重，输出 TopN 并校验结果是否一致。
 
-**实测环境**：Windows + JDK 17 + MySQL 8，Hadoop 3.3.6 `LocalJobRunner`（单机单 reducer）。
+**实测环境**：Windows + JDK 17 + PostgreSQL 16，Hadoop 3.3.6 `LocalJobRunner`（单机单 reducer）。
 数据量通过在临时库里复制 `user_behaviors` 行构造，真实库未改动。
 
-| 数据量 | MySQL `GROUP BY` | MapReduce | 倍数 | 结果一致 |
+| 数据量 | PostgreSQL `GROUP BY` | MapReduce | 倍数 | 结果一致 |
 | --- | --- | --- | --- | --- |
 | 2,963 行 | **11 ms** | 5,544 ms | 504× | ✅ |
 | 22,404 行 | **68 ms** | 5,105 ms | 75× | ✅ |
@@ -531,15 +532,15 @@ POST /api/admin/hadoop/benchmark?topN=10   # 跑对比
 
 可以读出两条曲线：
 
-1. **MySQL 基本线性增长**：11 → 68 → 971 ms（数据量涨 98 倍，耗时涨 88 倍）
+1. **PostgreSQL 基本线性增长**：11 → 68 → 971 ms（数据量涨 98 倍，耗时涨 88 倍）
 2. **MapReduce 耗时几乎不变**：5,544 → 5,105 → 5,092 ms
    —— 说明在这个量级上，作业启动、切片、序列化、落盘这些**固定开销**占了绝大部分，
    真正的聚合计算微乎其微
 
 **这组数字该怎么写进论文**：
 
-> 在当前测试规模（万级到十万级）下，MapReduce 反而比 MySQL 单机聚合慢 5~500 倍。
-> 按两条曲线的斜率粗略外推，MySQL 的耗时会在**百万行量级**追平 MapReduce 的
+> 在当前测试规模（万级到十万级）下，MapReduce 反而比 PostgreSQL 单机聚合慢 5~500 倍。
+> 按两条曲线的斜率粗略外推，PostgreSQL 的耗时会在**百万行量级**追平 MapReduce 的
 > 约 5 秒固定开销；再往上（千万级以上，单机内存/IO 成为瓶颈时）才轮到 MapReduce
 > 的横向扩展优势体现。
 
@@ -579,7 +580,7 @@ export PATH=/tmp/hadoop-win/bin:$PATH
 
 > 未配置时接口不会报错，而是**自动退回进程内等价实现**（`mode=IN_PROCESS`），
 > 结果与 MapReduce 完全一致，但返回体里的 `conclusion` 会明确写出
-> 「这组耗时不能用于比较 Hadoop 与 MySQL」。这样在 Linux/集群环境仍能拿到真实数字。
+> 「这组耗时不能用于比较 Hadoop 与 PostgreSQL」。这样在 Linux/集群环境仍能拿到真实数字。
 
 ---
 
@@ -591,11 +592,10 @@ export PATH=/tmp/hadoop-win/bin:$PATH
 | --- | --- | --- |
 | JDK | 17 | ✅ |
 | Maven | 3.8+ | ✅ |
-| MySQL | 8.0 | ✅ |
+| PostgreSQL + pgvector | 16 + 0.6+ | ✅（业务库 + 向量库） |
 | Node.js | 18+ | ✅ |
-| Python | 3.8+（推荐引擎）/ 3.11+（AI 服务） | 推荐 |
-| PostgreSQL + pgvector | 16 + 0.6+ | AI 服务需要 |
-| uv | 0.5+ | 推荐（AI 服务依赖管理） |
+| Python | 3.11+（推荐引擎）/ 3.11+（AI 服务） | 推荐 |
+| uv | 0.5+ | 推荐（AI 服务与迁移脚本依赖管理） |
 | vLLM | 0.6+（需 GPU） | 可选；无 GPU 用 `scripts/stub_vllm.py` 联调 |
 | Hadoop | 3.x | 可选（不装会自动回退本地） |
 | Docker / Compose | 任意 | 可选（一键起 pgvector + ai-service） |
@@ -605,10 +605,10 @@ export PATH=/tmp/hadoop-win/bin:$PATH
 ```bash
 # ⚠️ sql/init.sql 会 DROP 并重建 recommend_db 下的所有表
 #    如果该库已有数据，先备份：
-mysqldump -u root -p --databases recommend_db > backup_$(date +%F).sql
+pg_dump -d recommend_db > backup_$(date +%F).sql
 
-mysql -u root -p < sql/init.sql
-mysql -u root -p recommend_db < sql/user_preferences.sql
+createdb recommend_db
+psql -d recommend_db -f sql/init.sql
 ```
 
 初始账号见 `sql/init.sql` 中的 `users` 表（口令为 BCrypt 哈希）。
@@ -619,7 +619,7 @@ mysql -u root -p recommend_db < sql/user_preferences.sql
 cd backend
 
 # 必填两项：数据库口令 + JWT 密钥（≥32 字节）
-export DB_PASSWORD='你的MySQL口令'
+export DB_PASSWORD='你的PostgreSQL口令'
 export JWT_SECRET="$(openssl rand -base64 48)"
 
 # 可选：AI 服务与 Hadoop
@@ -649,10 +649,11 @@ npm run dev      # http://localhost:3000，/api 自动代理到 8080
 
 ```bash
 cd recommendation
-pip install -r requirements.txt
-export DB_PASSWORD='你的MySQL口令'
-python run_recommendation.py                 # 全量刷新
-python run_recommendation.py --user-id 2     # 只刷某个用户
+uv venv --python 3.11 .venv
+uv pip install -r requirements.txt
+export DB_PASSWORD='你的PostgreSQL口令'
+.venv/Scripts/python run_recommendation.py                 # 全量刷新
+.venv/Scripts/python run_recommendation.py --user-id 2     # 只刷某个用户
 ```
 
 ### 6.6 启动 AI 服务（FastAPI + LangGraph + vLLM + pgvector）
@@ -699,7 +700,7 @@ uv run python scripts/stub_vllm.py --port 18000
 # 再把 .env 的 VLLM_BASE_URL 指向 http://127.0.0.1:18000/v1，EMBEDDING_DIM=8
 ```
 
-验证链路（不需要 MySQL / Spring）：
+验证链路（不需要外部 PostgreSQL / Spring；pytest 自带嵌入式 pgvector）：
 
 ```bash
 cd ai-service
@@ -762,7 +763,7 @@ curl -X POST http://localhost:8080/api/admin/ai/reindex -H "Authorization: Beare
 | POST | `/chat` | `answer` + `citations[]` + `references[]` + `route`（materials/general）+ `model` |
 | POST | `/summarize/{id}` | `summary` + `citations[]` + `grounded`（是否基于索引片段）+ `chunks` |
 | POST | `/suggestions` | `suggestions` + `references[]`（结合目标院校/专业/阶段与收藏） |
-| GET | `/search?q=` | `materials[]`（MySQL 补全字段）+ `matches[]`（pgvector 命中片段与分数） |
+| GET | `/search?q=` | `materials[]`（PostgreSQL 补全字段）+ `matches[]`（pgvector 命中片段与分数） |
 | GET | `/history` | 最近 20 条 AI 会话 |
 
 > 内部接口（供 ai-service 拉取资料，需 `X-Internal-Token`）：
@@ -914,7 +915,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 | 🟡 | **向量维度固定** | `EMBEDDING_DIM` 默认 1024（bge-m3）；换成别的 embedding 模型必须清空 `ai_material_chunks` 重建索引 |
 | 🟡 | **AI 服务不存多轮状态** | LangGraph 每次请求独立执行；多轮上下文由 Spring 从 `ai_conversations` 取最近 3 轮拼入 prompt |
 | 🟡 | **Hadoop 只在本地模式验证过** | MapReduce 作业已实现并有实测对比，但没在真实集群（HDFS+YARN）上跑过，见 5.4 |
-| 🟡 | `sql/init.sql` 是 `mysqldump` 全量导出 | 开头即 `DROP TABLE`，误执行会清库（已在文件头加警示） |
+| 🟡 | `sql/schema.sql` 会重建全部表 | 开头 `DROP TABLE` 列出 12 张表；`sql/init.sql` = schema + seed，误执行会清业务库 |
 | 🟡 | 数据规模很小 | 4 个用户、31 条资料、102 条行为。UserCF 在这么小的数据上意义有限，冷启动问题严重 |
 | 🟡 | 单机 Hadoop 依赖 `winutils.exe` | Windows 下无 HADOOP_HOME 时 Hadoop 会打警告，已通过本地回退规避 |
 | 🟡 | 前端无构建产物入库 | 按惯例排除 `dist/`，需自行 `npm run build` |

@@ -46,7 +46,7 @@ public class MaterialController {
     public ApiResponse<Material> detail(@PathVariable Long id,
                                          @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = userDetails != null
-                ? userRepository.findByUsername(userDetails.getUsername()).map(u -> u.getId()).orElse(null)
+                ? userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).map(u -> u.getId()).orElse(null)
                 : null;
         return ApiResponse.success(materialService.getDetail(id, userId));
     }
@@ -54,7 +54,7 @@ public class MaterialController {
     @GetMapping("/{id}/download")
     public ResponseEntity<InputStreamResource> download(@PathVariable Long id,
                                                         @AuthenticationPrincipal UserDetails userDetails) throws IOException {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         MaterialService.DownloadPayload payload = materialService.prepareDownload(userId, id);
 
         String encodedFileName = URLEncoder.encode(payload.fileName(), StandardCharsets.UTF_8)
@@ -77,7 +77,7 @@ public class MaterialController {
     public ApiResponse<Material> create(@Valid @RequestPart("data") MaterialDTO dto,
                                          @RequestPart(value = "file", required = false) MultipartFile file,
                                          @AuthenticationPrincipal UserDetails userDetails) throws IOException {
-        Long uploaderId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long uploaderId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         return ApiResponse.success(materialService.create(dto, uploaderId, file));
     }
 
@@ -98,7 +98,7 @@ public class MaterialController {
     public ApiResponse<Map<String, Object>> rate(@PathVariable Long id,
                                                   @RequestBody Map<String, Integer> body,
                                                   @AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         Integer rating = body == null ? null : body.get("rating");
         // 缺字段时直接拆箱会 NPE 并返回 500，这里改成明确的 400
         if (rating == null) {
@@ -110,7 +110,7 @@ public class MaterialController {
     @PostMapping("/{id}/favorite")
     public ApiResponse<Map<String, Boolean>> favorite(@PathVariable Long id,
                                                        @AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         boolean added = userService.toggleFavorite(userId, id);
         return ApiResponse.success(Map.of("favorited", added));
     }
@@ -119,7 +119,7 @@ public class MaterialController {
     public ApiResponse<Map<String, Boolean>> favoriteStatus(@PathVariable Long id,
                                                             @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = userDetails != null
-                ? userRepository.findByUsername(userDetails.getUsername()).map(u -> u.getId()).orElse(null)
+                ? userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).map(u -> u.getId()).orElse(null)
                 : null;
         boolean favorited = materialService.getFavoriteStatus(userId, id);
         return ApiResponse.success(Map.of("favorited", favorited));
@@ -129,7 +129,7 @@ public class MaterialController {
     public ApiResponse<Map<String, Object>> likeState(@PathVariable Long id,
                                                       @AuthenticationPrincipal UserDetails userDetails) {
         Long userId = userDetails != null
-                ? userRepository.findByUsername(userDetails.getUsername()).map(u -> u.getId()).orElse(null)
+                ? userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).map(u -> u.getId()).orElse(null)
                 : null;
         return ApiResponse.success(materialService.getLikeState(userId, id));
     }
@@ -137,7 +137,7 @@ public class MaterialController {
     @PostMapping("/{id}/like")
     public ApiResponse<Map<String, Object>> toggleLike(@PathVariable Long id,
                                                        @AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         return ApiResponse.success(materialService.toggleLike(userId, id));
     }
 
@@ -150,7 +150,7 @@ public class MaterialController {
     public ApiResponse<Map<String, Object>> comment(@PathVariable Long id,
                                                     @RequestBody Map<String, String> body,
                                                     @AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         return ApiResponse.success(materialService.addComment(userId, id, body.get("content")));
     }
 }

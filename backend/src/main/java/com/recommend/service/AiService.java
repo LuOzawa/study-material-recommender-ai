@@ -26,7 +26,7 @@ import java.util.Set;
 
 /**
  * Application-facing AI facade.  All model work happens in the FastAPI service
- * (LangGraph + vLLM + pgvector); this class only loads context from MySQL and
+ * (LangGraph + vLLM + pgvector); this class only loads context from PostgreSQL and
  * persists conversations.
  */
 @Slf4j

@@ -1,7 +1,7 @@
 """
 Recommendation Engine Entry Point
 
-Reads data from MySQL, runs UserCF + ItemCF + TF-IDF + SVD,
+Reads data from PostgreSQL, runs UserCF + ItemCF + TF-IDF + SVD,
 merges scores, and writes results back to the recommendations table.
 
 Usage:
@@ -16,6 +16,7 @@ import sys
 import logging
 import os
 import pandas as pd
+from sqlalchemy import URL, create_engine
 
 from usercf import compute_usercf
 from itemcf import compute_itemcf
@@ -27,12 +28,11 @@ from svd_recommend import compute_svd
 # ---------------------------------------------------------------------------
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
-    "port": int(os.getenv("DB_PORT", "3306")),
-    "user": os.getenv("DB_USERNAME", "root"),
+    "port": int(os.getenv("DB_PORT", "5432")),
+    "user": os.getenv("DB_USERNAME", "postgres"),
     # 口令不入仓，请通过环境变量 DB_PASSWORD 提供
     "password": os.getenv("DB_PASSWORD", ""),
-    "database": os.getenv("DB_NAME", "recommend_db"),
-    "charset": "utf8mb4",
+    "dbname": os.getenv("DB_NAME", "recommend_db"),
 }
 
 # Weight blending: USERCF * w1 + ITEMCF * w2 + TFIDF * w3 + SVD * w4
@@ -45,23 +45,35 @@ log = logging.getLogger(__name__)
 
 def get_connection():
     # 惰性导入：纯离线评测（evaluate_offline.py --source synthetic）不需要数据库驱动
-    import pymysql
-    return pymysql.connect(**DB_CONFIG)
+    import psycopg
+    return psycopg.connect(**DB_CONFIG)
 
 
-def load_ratings(conn) -> pd.DataFrame:
+def get_engine():
+    url = URL.create(
+        "postgresql+psycopg",
+        username=DB_CONFIG["user"],
+        password=DB_CONFIG["password"],
+        host=DB_CONFIG["host"],
+        port=DB_CONFIG["port"],
+        database=DB_CONFIG["dbname"],
+    )
+    return create_engine(url)
+
+
+def load_ratings(engine) -> pd.DataFrame:
     sql = "SELECT user_id, material_id, rating FROM user_ratings"
-    return pd.read_sql(sql, conn)
+    return pd.read_sql(sql, engine)
 
 
-def load_behaviors(conn) -> pd.DataFrame:
+def load_behaviors(engine) -> pd.DataFrame:
     sql = "SELECT user_id, material_id, action FROM user_behaviors"
-    return pd.read_sql(sql, conn)
+    return pd.read_sql(sql, engine)
 
 
-def load_materials(conn) -> pd.DataFrame:
+def load_materials(engine) -> pd.DataFrame:
     sql = "SELECT id, title, description, tags FROM materials WHERE status = 'ACTIVE'"
-    return pd.read_sql(sql, conn)
+    return pd.read_sql(sql, engine)
 
 
 def _diversify_per_user(merged_df: pd.DataFrame, top_n: int) -> pd.DataFrame:
@@ -174,7 +186,8 @@ def save_recommendations(conn, rec_df: pd.DataFrame, user_id=None):
         sql = """
             INSERT INTO recommendations (user_id, material_id, score, algorithm, created_at)
             VALUES (%s, %s, %s, %s, NOW())
-            ON DUPLICATE KEY UPDATE score = VALUES(score), algorithm = VALUES(algorithm), created_at = NOW()
+            ON CONFLICT (user_id, material_id) DO UPDATE
+            SET score = EXCLUDED.score, algorithm = EXCLUDED.algorithm, created_at = NOW()
         """
         cursor.executemany(sql, rows)
         conn.commit()
@@ -186,11 +199,12 @@ def save_recommendations(conn, rec_df: pd.DataFrame, user_id=None):
 def run(user_id=None):
     log.info("Starting recommendation engine (user_id=%s)...", user_id)
     conn = get_connection()
+    engine = get_engine()
 
     try:
-        ratings_df = load_ratings(conn)
-        behaviors_df = load_behaviors(conn)
-        materials_df = load_materials(conn)
+        ratings_df = load_ratings(engine)
+        behaviors_df = load_behaviors(engine)
+        materials_df = load_materials(engine)
 
         log.info(
             "Loaded %d ratings, %d behaviors, %d materials.",
@@ -221,6 +235,7 @@ def run(user_id=None):
         save_recommendations(conn, merged, user_id)
         log.info("Done.")
     finally:
+        engine.dispose()
         conn.close()
 
 

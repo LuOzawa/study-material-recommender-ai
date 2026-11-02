@@ -1,7 +1,7 @@
 # study-ai-service
 
 考研资料平台的 AI 服务：**FastAPI + LangGraph + vLLM + pgvector**。
-Spring Boot 通过内部令牌调用它；它只读取 MySQL 里的资料快照，不直接连业务库。
+Spring Boot 通过内部令牌调用它；它只读取 PostgreSQL 里的资料快照，不直接连业务库。
 
 ## 能力
 

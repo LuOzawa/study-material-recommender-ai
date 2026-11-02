@@ -81,6 +81,6 @@ public class AiController {
     }
 
     private Long currentUserId(UserDetails userDetails) {
-        return userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        return userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
     }
 }

@@ -14,7 +14,7 @@
 --------
 1. **默认只预览，不写库**。必须显式加 `--apply` 才会真写。
 2. **只 INSERT，不 UPDATE / DELETE 任何已有数据**。
-   评分与反馈用 ON DUPLICATE KEY UPDATE，重复执行幂等。
+   评分与反馈用 ON CONFLICT 更新，重复执行幂等。
 3. **可一键撤销**：所有模拟用户的 username 统一带前缀（默认 `sim_`），
    由于 user_ratings / user_behaviors / recommendation_feedback 三张表都是
    `ON DELETE CASCADE` 外键，执行
@@ -59,19 +59,18 @@ POSITIVE_ACTIONS = ["VIEW", "LIKE", "COLLECT", "DOWNLOAD"]
 
 
 def get_connection():
-    import pymysql
+    import psycopg
 
     cfg = {
         "host": os.getenv("DB_HOST", "localhost"),
-        "port": int(os.getenv("DB_PORT", "3306")),
-        "user": os.getenv("DB_USERNAME", "root"),
+        "port": int(os.getenv("DB_PORT", "5432")),
+        "user": os.getenv("DB_USERNAME", "postgres"),
         "password": os.getenv("DB_PASSWORD", ""),
-        "database": os.getenv("DB_NAME", "recommend_db"),
-        "charset": "utf8mb4",
+        "dbname": os.getenv("DB_NAME", "recommend_db"),
     }
-    conn = pymysql.connect(**cfg)
-    if cfg["database"] != "recommend_db":
-        print(f"⚠️  目标库不是 recommend_db，而是 {cfg['database']}")
+    conn = psycopg.connect(**cfg)
+    if cfg["dbname"] != "recommend_db":
+        print(f"⚠️  目标库不是 recommend_db，而是 {cfg['dbname']}")
     return conn
 
 
@@ -198,8 +197,8 @@ def seed(conn, apply: bool, users, ratings, behaviors, feedback, password_hash, 
             """
             INSERT INTO users (username, password, role, email, target_school, major,
                                study_phase, enabled)
-            VALUES (%s, %s, 'USER', %s, %s, %s, %s, 1)
-            ON DUPLICATE KEY UPDATE username = username
+            VALUES (%s, %s, 'USER', %s, %s, %s, %s, TRUE)
+            ON CONFLICT DO NOTHING
             """,
             [(u["username"], password_hash, u["email"], u["target_school"],
               u["major"], u["study_phase"]) for u in users],
@@ -215,7 +214,7 @@ def seed(conn, apply: bool, users, ratings, behaviors, feedback, password_hash, 
             """
             INSERT INTO user_ratings (user_id, material_id, rating)
             VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE rating = VALUES(rating)
+            ON CONFLICT (user_id, material_id) DO UPDATE SET rating = EXCLUDED.rating
             """,
             [(id_map[u], mid, r) for u, mid, r in ratings if u in id_map],
         )
@@ -236,7 +235,7 @@ def seed(conn, apply: bool, users, ratings, behaviors, feedback, password_hash, 
             """
             INSERT INTO recommendation_feedback (user_id, material_id, feedback)
             VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE feedback = VALUES(feedback)
+            ON CONFLICT (user_id, material_id) DO UPDATE SET feedback = EXCLUDED.feedback
             """,
             [(id_map[u], mid, f) for u, mid, f in feedback if u in id_map],
         )
@@ -260,7 +259,7 @@ def main() -> int:
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT DATABASE()")
+            cur.execute("SELECT current_database()")
             db = cur.fetchone()[0]
         print(f"目标数据库：{db}")
         print(f"当前模拟用户数：{existing_sim_users(conn, ARGS.prefix)}")

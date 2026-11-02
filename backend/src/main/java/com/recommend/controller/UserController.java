@@ -38,27 +38,27 @@ public class UserController {
 
     @GetMapping("/favorites")
     public ApiResponse<List<Material>> getFavorites(@AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         return ApiResponse.success(userService.getFavorites(userId));
     }
 
     @PostMapping("/favorites/{materialId}")
     public ApiResponse<Map<String, Boolean>> toggleFavorite(@AuthenticationPrincipal UserDetails userDetails,
                                                              @PathVariable Long materialId) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         boolean added = userService.toggleFavorite(userId, materialId);
         return ApiResponse.success(Map.of("favorited", added));
     }
 
     @GetMapping("/history")
     public ApiResponse<List<Map<String, Object>>> getHistory(@AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         return ApiResponse.success(userService.getHistoryView(userId));
     }
 
     @DeleteMapping("/history")
     public ApiResponse<Void> clearHistory(@AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         userService.clearHistory(userId);
         return ApiResponse.success();
     }
@@ -66,35 +66,35 @@ public class UserController {
     @DeleteMapping("/history/{historyId}")
     public ApiResponse<Void> deleteHistoryItem(@AuthenticationPrincipal UserDetails userDetails,
                                                @PathVariable Long historyId) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         userService.deleteHistoryItem(userId, historyId);
         return ApiResponse.success();
     }
 
     @GetMapping("/ratings")
     public ApiResponse<List<Map<String, Object>>> getRatings(@AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         return ApiResponse.success(userService.getRatings(userId));
     }
 
     @DeleteMapping("/ratings/{materialId}")
     public ApiResponse<Void> deleteRating(@AuthenticationPrincipal UserDetails userDetails,
                                           @PathVariable Long materialId) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         userService.deleteRating(userId, materialId);
         return ApiResponse.success();
     }
 
     @GetMapping("/preferences")
     public ApiResponse<Map<String, Object>> getPreferences(@AuthenticationPrincipal UserDetails userDetails) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         return ApiResponse.success(userService.getPreferenceView(userId));
     }
 
     @PutMapping("/preferences")
     public ApiResponse<Map<String, Object>> updatePreferences(@AuthenticationPrincipal UserDetails userDetails,
                                                               @RequestBody Map<String, Object> updates) {
-        Long userId = userRepository.findByUsername(userDetails.getUsername()).orElseThrow().getId();
+        Long userId = userRepository.findByUsernameIgnoreCase(userDetails.getUsername()).orElseThrow().getId();
         return ApiResponse.success(userService.updatePreferenceView(userId, updates));
     }
 }

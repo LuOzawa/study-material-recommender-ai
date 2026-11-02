@@ -13,7 +13,7 @@ import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 /**
- * Mirrors material changes into the pgvector index after the MySQL transaction
+ * Mirrors material changes into the pgvector index after the PostgreSQL transaction
  * commits.  Failures are logged only: indexing must never break moderation.
  */
 @Slf4j

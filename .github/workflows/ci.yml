@@ -94,3 +94,39 @@ jobs:
         run: uv run pytest -q
       - name: End-to-end smoke
         run: uv run python scripts/smoke_e2e.py
+  postgres-schema:
+    name: PostgreSQL schema (pgvector)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: recommend_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d recommend_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply schema and seed
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d recommend_db -v ON_ERROR_STOP=1 -f sql/init.sql
+          test "$(psql -h localhost -U postgres -d recommend_db -tAc 'select count(*) from materials')" = "31"
+          test "$(psql -h localhost -U postgres -d recommend_db -tAc 'select count(*) from users')" = "4"
+      - name: Guard identity and case-insensitive uniqueness
+        env:
+          PGPASSWORD: postgres
+        run: |
+          test "$(psql -h localhost -U postgres -d recommend_db -tAc "insert into categories (name) values ('CI') returning id")" = "12"
+          psql -h localhost -U postgres -d recommend_db -c "insert into users (username,password) values ('CaseUser','x')"
+          if psql -h localhost -U postgres -d recommend_db -c "insert into users (username,password) values ('caseuser','x')"; then
+            echo "case-insensitive unique index is missing" >&2
+            exit 1
+          fi
