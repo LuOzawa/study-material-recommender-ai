@@ -17,7 +17,7 @@
 - **大数据**：Hadoop 3.3.6 —— HDFS 归档 + 定时导出按天分区 CSV + **MapReduce 热度聚合作业**（本地模式实测）
 - **AI 服务**：FastAPI + **LangGraph** 智能体（意图路由 → pgvector 检索 → 相关性评分 → 查询改写 → 带引用作答）+ **vLLM** 自托管推理（Qwen2.5-7B-Instruct + bge-m3）
 - **向量库**：PostgreSQL 16 + **pgvector**（HNSW 索引、余弦距离）
-- **规模**：后端 82 个 Java 文件（含 14 个测试类）；前端 24 个文件 / 7,003 行；Python 推荐引擎 10 个文件（含 2 个测试文件）/ 1,447 行；AI 服务 32 个 Python 文件 / 2,640 行
+- **规模**：后端 83 个 Java 文件（含 15 个测试类）；前端 24 个文件 / 7,003 行；Python 推荐引擎 10 个文件（含 2 个测试文件）/ 1,447 行；AI 服务 32 个 Python 文件 / 2,640 行
 
 项目为本科毕业设计作品。
 
@@ -50,14 +50,14 @@
 | 推荐反馈闭环（点赞/踩影响推荐） | ✅ | 见 9.1，点踩后该资料从推荐中剔除 | — |
 | 数据分析模块（画像/热度/趋势/漏斗） | ✅ | `GET /api/analytics/dashboard?days=365` | 旧数据需把 `days` 调大才看得到 |
 | Hadoop 分布式**存储** | ✅ | `POST /api/admin/hadoop/export` 导出分区 CSV | HDFS 不可用时自动回退本地目录 |
-| Hadoop 分布式**计算**（MapReduce） | 🟡 | `POST /api/admin/hadoop/benchmark` | **只在 `LocalJobRunner` 本地模式跑过**，没上真实集群；Windows 需 winutils（5.5） |
+| Hadoop 分布式**计算**（MapReduce） | 🟡 | `POST /api/admin/hadoop/benchmark`（本地）/ `benchmark-cluster`（YARN） | **代码支持 LocalJobRunner 与真实集群提交；本环境无集群，集群路径未实测**；Windows 需 winutils（5.5） |
 | AI 大模型模块（问答/摘要/建议/语义搜索） | ✅ | 启动 ai-service 后调 `/api/ai/*`；回答带 `citations` | 需要 vLLM 提供的 OpenAI 兼容服务（本地无 GPU 可用 `ai-service/scripts/stub_vllm.py` 联调） |
 | 管理员模块（用户/资料/分类/日志/备份） | ✅ | `/api/admin/**` 全部要求 ADMIN | — |
 | 推荐效果评测（离线指标） | ✅ | 第四节，`evaluate_offline.py` | 指标口径与数据装配方式需在论文说明 |
 | 论文可用的实验数据 | 🟡 | 第四节 4.4 的三档对比表 | **200 个用户里 196 个是模拟用户**（详见 4.4） |
 | 行为埋点完整性 | 🟡 | 收藏补 `COLLECT`，评论补 `COMMENT`（本次） | **DISLIKE 行为仍不写入**；推荐反馈走 `recommendation_feedback`（9.3） |
 | 数据库迁移（MySQL → PostgreSQL 16） | ✅ | 全新库 `psql -f sql/init.sql`；`scripts/migrate_mysql_to_postgres.py` 输出 `MIGRATION OK`；CI `postgres-schema` job | 历史 Hadoop 耗时对比数据采集于迁移前 MySQL，未在 PostgreSQL 重测（5.3） |
-| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（57 个用例，含 4 个 PostgreSQL 集成用例；CI 提供 PG 服务）+ `cd ai-service && uv run pytest`（30 个）+ `recommendation` 测试（13 个） | 仍未覆盖全部业务服务，见「附：自动化测试」 |
+| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（60 个用例，含 4 个 PostgreSQL 集成用例；CI 提供 PG 服务）+ `cd ai-service && uv run pytest`（30 个）+ `recommendation` 测试（13 个） | 仍未覆盖全部业务服务，见「附：自动化测试」 |
 
 ### B. 三处必须区分清楚的地方
 
@@ -79,13 +79,11 @@
 
 ### C. 要做成「完整毕设」还缺什么
 
-按「代码类 / 实验类 / 论文类」分开列。**代码类不做完，论文那几章就没有素材。**
+按「代码类 / 实验类 / 论文类」分开列。代码类已清空，剩余是实验与论文整理。
 
-#### 🔲 代码类（必须先补）
+#### ✅ 代码类
 
-| # | 缺的内容 | 工作量 | 补完能支撑什么 |
-| --- | --- | --- | --- |
-| 1 | **MapReduce 上真实集群**：输入路径改 HDFS URI、`setNumReduceTasks(1)` 改多 reducer | 半天~1 天（需要集群环境） | 「分布式计算」才算真正落地 |
+当前没有阻塞项：评论埋点、MapReduce 集群提交代码均已补齐。剩余是实验/论文与真实集群环境验证。
 
 #### 📄 实验类（代码已就绪，只差跑与整理）
 
@@ -113,7 +111,7 @@
 三条命令，都能在 10 秒内给出结果：
 
 ```bash
-# 1) 后端能编译（82 个 Java 文件，含 14 个测试类）
+# 1) 后端能编译（83 个 Java 文件，含 15 个测试类）
 cd backend && mvn -q compile
 
 # 2) 推荐评测链路可跑（不连数据库，纯内存；需 Python 3.11）
@@ -569,13 +567,30 @@ POST /api/admin/hadoop/benchmark?topN=10   # 跑对比
 「Hadoop 的价值在于数据量超出单机能力后的可扩展性，本项目在现有数据规模下
 尚未进入该区间，因此改用 Hadoop 并不划算」，并附上这张实测表。
 
-### 5.4 仍然没有做的
+### 5.4 集群模式与仍然没有做的
 
-- ❌ **没有在真实集群上跑过**：只验证了 `LocalJobRunner` 本地模式。
-  上集群需要 HDFS + YARN，且代码里的输入路径要改成 HDFS URI。
+**集群提交代码已补**：`HadoopHotnessJob.runCluster(...)` / `main` / `POST /api/admin/hadoop/benchmark-cluster`，
+输入路径走 HDFS、reducer 数由 `hadoop.cluster.reducers` 控制（默认 4）。
+
+```bash
+# 打包后提交到真实集群（需 HADOOP_CONF_DIR / core-site.xml 已配置）
+mvn -DskipTests package
+hadoop jar target/study-recommend-1.0.0.jar com.recommend.hadoop.HadoopHotnessJob \
+  /recommend/warehouse/user_behaviors /recommend/warehouse/hotness 10 4
+```
+
+或在 Spring 启动后：
+
+```bash
+curl -X POST "http://localhost:8080/api/admin/hadoop/benchmark-cluster?topN=10" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+```
+
+仍然没有做的：
+
+- ❌ **没有在真实 HDFS/YARN 集群上跑过**：本环境无集群，只验证了本地 `LocalJobRunner` 与进程内实现；
+  集群路径已通过编译与参数校验，但性能数字需在集群上采集。
 - ❌ **没有把 CSV 灌进 Hive 外部表的 DDL**（当前直接读 CSV）。
-- ❌ **只有一个 reducer**：本地模式固定 `setNumReduceTasks(1)`，
-  集群上应改成多 reducer 才有并发收益。
 
 ### 5.5 Windows 上跑 MapReduce 的前置条件
 
@@ -794,6 +809,7 @@ curl -X POST http://localhost:8080/api/admin/ai/reindex -H "Authorization: Beare
 
 `/users` `/materials` `/categories` `/logs` `/backup`
 `/hadoop/export` `/hadoop/export/latest` `/hadoop/benchmark`（单机 vs MapReduce 对比）
+`/hadoop/benchmark-cluster`（真实 YARN 集群 vs PostgreSQL）
 `/ai/reindex`（全量重建向量索引）`/ai/stats`（索引与模型状态）
 
 详见各 Controller 源码。
@@ -933,7 +949,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 | 🟡 | **AI 接口非流式** | `/api/ai/chat` 一次性返回完整回答，前端无 token 级打字机效果 |
 | 🟡 | **向量维度固定** | `EMBEDDING_DIM` 默认 1024（bge-m3）；换成别的 embedding 模型必须清空 `ai_material_chunks` 重建索引 |
 | 🟡 | **AI 服务不存多轮状态** | LangGraph 每次请求独立执行；多轮上下文由 Spring 从 `ai_conversations` 取最近 3 轮拼入 prompt |
-| 🟡 | **Hadoop 只在本地模式验证过** | MapReduce 作业已实现并有实测对比，但没在真实集群（HDFS+YARN）上跑过，见 5.4 |
+| 🟡 | **Hadoop 集群路径未实测** | 代码已支持 HDFS 输入、YARN 提交与多 reducer，但本环境没有真实集群，只有本地模式实测数据 |
 | 🟡 | **Hadoop 对比未在 PostgreSQL 重跑** | 5.3 的 11/68/971 ms 来自迁移前 MySQL；迁移后只改了 `postgresql` 代码路径，未重新采集 |
 | 🟢 | 夜间任务需指定 Python 3.11 | `recommendation.python-command` 默认 `python`；建议设为 `../recommendation/.venv/Scripts/python.exe` 或对应 Linux 路径 |
 | 🟡 | `sql/schema.sql` 会重建全部表 | 开头 `DROP TABLE` 列出 12 张表；`sql/init.sql` = schema + seed，误执行会清业务库 |
@@ -949,7 +965,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 > 原列的「补反馈闭环 / 补推荐评测 / 补数据规模 / 补 Hadoop 计算」**本次全部完成**
 > （见 9.1 / 第四节 / 第五节）。下面是真正还没做的。
 
-1. **可选补充测试**：后端 57 个、AI 服务 30 个、推荐指标/数据装配 13 个；剩余可选是 `AnalyticsService` 其余图表聚合分支（清理口径已覆盖）。
+1. **可选补充测试**：后端 60 个、AI 服务 30 个、推荐指标/数据装配 13 个；剩余可选是 `AnalyticsService` 其余图表聚合分支（清理口径已覆盖）。
 2. **把 MapReduce 上真实集群**：现在只验证了 `LocalJobRunner`。上集群需要
    把输入路径改成 HDFS URI、把 `setNumReduceTasks(1)` 改成多 reducer，
    再跑一次 5.3 的对比表 —— 那张表才是「分布式」的完整论据。
@@ -981,7 +997,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 ## 附：自动化测试
 
 ```bash
-# Java：57 个用例；4 个 PostgreSQL 集成用例需要 SPRING_DATASOURCE_URL
+# Java：60 个用例；4 个 PostgreSQL 集成用例需要 SPRING_DATASOURCE_URL
 cd backend && mvn test
 
 # 推荐指标 + 数据装配：13 个 stdlib unittest（不依赖数据库）
@@ -1010,6 +1026,7 @@ cd ai-service && uv run python scripts/smoke_e2e.py
 | `UserServiceTest` | 收藏写 COLLECT 行为、取消收藏不写行为、更新资料只改传入字段 |
 | `MaterialServiceTest` | 删除置 DELETED 并发布索引事件、更新只改传入字段、非 ACTIVE 详情拒绝、评论写 COMMENT 行为 |
 | `AnalyticsServiceTest` | 行为日志清理的 before/removed/after 口径 |
+| `HadoopHotnessJobTest` | 进程内聚合权重/TopN、空 HDFS 输入拒绝、SQL 权重 CASE 与 Java 口径一致 |
 | `PostgresIntegrationTest` | 大小写不敏感查询、偏好 upsert 单行 + boolean、普通用户访问 `/api/admin/**` 403、内部接口缺 token 401 |
 
 **AI 服务用例**

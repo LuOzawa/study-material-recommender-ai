@@ -141,4 +141,10 @@ public class AdminController {
             @RequestParam(defaultValue = "20") int topN) throws Exception {
         return ApiResponse.success(hadoopBenchmarkService.benchmark(topN));
     }
+
+    @PostMapping("/hadoop/benchmark-cluster")
+    public ApiResponse<Map<String, Object>> benchmarkHotnessOnCluster(
+            @RequestParam(defaultValue = "10") int topN) throws Exception {
+        return ApiResponse.success(hadoopBenchmarkService.clusterBenchmark(topN));
+    }
 }

@@ -169,20 +169,10 @@ public class HadoopHotnessJob {
         // 小数据量下不要为每个切片启动独立 JVM，减少启动开销
         conf.setBoolean("mapreduce.job.jvm.numtasks", false);
 
-        Job job = Job.getInstance(conf, "material-hotness");
-        job.setJarByClass(HadoopHotnessJob.class);
-        job.setMapperClass(HotnessMapper.class);
-        job.setReducerClass(HotnessReducer.class);
-        job.setMapOutputKeyClass(LongWritable.class);
-        job.setMapOutputValueClass(DoubleWritable.class);
-        job.setOutputKeyClass(LongWritable.class);
-        job.setOutputValueClass(DoubleWritable.class);
-        job.setNumReduceTasks(1);
-
-        for (String p : inputCsvPaths) {
-            FileInputFormat.addInputPath(job, new Path(new java.io.File(p).toURI()));
-        }
-        FileOutputFormat.setOutputPath(job, new Path(outDir.toUri()));
+        List<Path> inputs = inputCsvPaths.stream()
+                .map(p -> new Path(new java.io.File(p).toURI()))
+                .toList();
+        Job job = createJob(conf, inputs, new Path(outDir.toUri()), 1, "material-hotness");
 
         long start = System.currentTimeMillis();
         boolean ok = job.waitForCompletion(false);
@@ -192,10 +182,96 @@ public class HadoopHotnessJob {
             throw new IllegalStateException("MapReduce 作业执行失败，请检查日志");
         }
 
-        // 读取 reducer 输出（part-r-00000）
+        List<Hotness> all = readOutput(FileSystem.getLocal(conf), new Path(outDir.toUri()), Integer.MAX_VALUE);
+        List<Hotness> top = all.size() > topN ? all.subList(0, topN) : all;
+        log.info("MapReduce 完成: {} 条资料参与统计, 耗时 {} ms, 取 Top{}",
+                all.size(), elapsed, top.size());
+        return new JobResult(Mode.MAPREDUCE, new ArrayList<>(top), all.size(), elapsed,
+                "Hadoop MapReduce 本地模式（LocalJobRunner）");
+    }
+
+    /**
+     * 提交到真实 Hadoop 集群（YARN + HDFS）。
+     *
+     * @param conf       Hadoop 配置（由 HADOOP_CONF_DIR / core-site.xml 提供）
+     * @param inputPath  HDFS 输入目录或文件
+     * @param outputPath HDFS 输出目录；必须不存在，调用方应传唯一路径
+     * @param topN       最终取前多少名
+     * @param reducers   reducer 数（>=1）
+     */
+    public JobResult runCluster(Configuration conf, String inputPath, String outputPath,
+                                int topN, int reducers) throws Exception {
+        if (inputPath == null || inputPath.isBlank()) {
+            throw new IllegalArgumentException("HDFS 输入路径不能为空");
+        }
+        if (outputPath == null || outputPath.isBlank()) {
+            throw new IllegalArgumentException("HDFS 输出路径不能为空");
+        }
+
+        Path input = new Path(inputPath);
+        Path output = new Path(outputPath);
+        FileSystem fs = FileSystem.get(conf);
+        if (fs.exists(output)) {
+            throw new IllegalArgumentException("HDFS 输出路径已存在，请换一个: " + outputPath);
+        }
+
+        Job job = createJob(conf, List.of(input), output, Math.max(1, reducers),
+                "material-hotness-cluster");
+        long start = System.currentTimeMillis();
+        boolean ok = job.waitForCompletion(false);
+        long elapsed = System.currentTimeMillis() - start;
+        if (!ok) {
+            throw new IllegalStateException("MapReduce 集群作业执行失败，请检查 YARN 日志");
+        }
+
+        List<Hotness> all = readOutput(fs, output, Integer.MAX_VALUE);
+        List<Hotness> top = all.size() > topN ? all.subList(0, topN) : all;
+        log.info("集群 MapReduce 完成: {} 条资料, 耗时 {} ms, reducers={}",
+                all.size(), elapsed, Math.max(1, reducers));
+        return new JobResult(Mode.MAPREDUCE, new ArrayList<>(top), all.size(), elapsed,
+                "Hadoop 集群模式（YARN），reducers=" + Math.max(1, reducers));
+    }
+
+    /**
+     * hadoop jar 入口：
+     * {@code hadoop jar study-recommend-1.0.0.jar com.recommend.hadoop.HadoopHotnessJob \
+     *   /recommend/warehouse/user_behaviors /recommend/warehouse/hotness 10 4}
+     */
+    public static void main(String[] args) throws Exception {
+        if (args.length < 2 || args.length > 4) {
+            System.err.println("Usage: HadoopHotnessJob <hdfs-input> <hdfs-output> [topN=10] [reducers=4]");
+            System.exit(2);
+        }
+        int topN = args.length >= 3 ? Integer.parseInt(args[2]) : 10;
+        int reducers = args.length >= 4 ? Integer.parseInt(args[3]) : 4;
+        JobResult result = new HadoopHotnessJob().runCluster(
+                new Configuration(), args[0], args[1], topN, reducers);
+        for (Hotness item : result.topN()) {
+            System.out.printf("%d\t%.3f%n", item.materialId(), item.score());
+        }
+    }
+
+    private Job createJob(Configuration conf, List<Path> inputs, Path output,
+                          int reducers, String name) throws IOException {
+        Job job = Job.getInstance(conf, name);
+        job.setJarByClass(HadoopHotnessJob.class);
+        job.setMapperClass(HotnessMapper.class);
+        job.setReducerClass(HotnessReducer.class);
+        job.setMapOutputKeyClass(LongWritable.class);
+        job.setMapOutputValueClass(DoubleWritable.class);
+        job.setOutputKeyClass(LongWritable.class);
+        job.setOutputValueClass(DoubleWritable.class);
+        job.setNumReduceTasks(Math.max(1, reducers));
+        for (Path input : inputs) {
+            FileInputFormat.addInputPath(job, input);
+        }
+        FileOutputFormat.setOutputPath(job, output);
+        return job;
+    }
+
+    private List<Hotness> readOutput(FileSystem fs, Path outDir, int limit) throws IOException {
         List<Hotness> all = new ArrayList<>();
-        FileSystem fs = FileSystem.getLocal(conf);
-        FileStatus[] statuses = fs.listStatus(new Path(outDir.toUri()));
+        FileStatus[] statuses = fs.listStatus(outDir);
         for (FileStatus st : statuses) {
             if (st.isDirectory() || !st.getPath().getName().startsWith("part-")) {
                 continue;
@@ -217,15 +293,9 @@ public class HadoopHotnessJob {
                 }
             }
         }
-
         all.sort(Comparator.comparingDouble(Hotness::score).reversed()
                 .thenComparingLong(Hotness::materialId));
-
-        List<Hotness> top = all.size() > topN ? all.subList(0, topN) : all;
-        log.info("MapReduce 完成: {} 条资料参与统计, 耗时 {} ms, 取 Top{}",
-                all.size(), elapsed, top.size());
-        return new JobResult(Mode.MAPREDUCE, new ArrayList<>(top), all.size(), elapsed,
-                "Hadoop MapReduce 本地模式（LocalJobRunner）");
+        return all.size() > limit ? new ArrayList<>(all.subList(0, limit)) : all;
     }
 
     /**

@@ -37,6 +37,16 @@ import java.util.stream.Stream;
 public class HadoopBenchmarkService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final org.apache.hadoop.conf.Configuration hadoopConfiguration;
+
+    @Value("${hadoop.cluster.input-path:/recommend/warehouse/user_behaviors}")
+    private String clusterInputPath;
+
+    @Value("${hadoop.cluster.output-path:/recommend/warehouse/hotness}")
+    private String clusterOutputPath;
+
+    @Value("${hadoop.cluster.reducers:4}")
+    private int clusterReducers;
 
     @Value("${hadoop.export.local-root:./storage/hadoop-export}")
     private String localExportRoot;
@@ -125,6 +135,68 @@ public class HadoopBenchmarkService {
 
         log.info("热度对比完成: rows={} postgresql={}ms mapreduce={}ms 结果一致={}",
                 totalLines, sqlMillis, jobResult.elapsedMillis(), result.get("resultsMatch"));
+        return result;
+    }
+
+    /**
+     * 在真实 Hadoop 集群上跑同一套热度作业，并与 PostgreSQL 聚合结果对比。
+     *
+     * <p>需要 HDFS/YARN 可用，且 {@code hadoop.cluster.input-path} 已存在；
+     * 输出路径会自动追加时间戳，避免 HDFS 输出目录已存在。</p>
+     */
+    public Map<String, Object> clusterBenchmark(int topN) throws Exception {
+        int safeTopN = Math.max(5, Math.min(topN, 100));
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("generatedAt", java.time.LocalDateTime.now().toString());
+        result.put("topN", safeTopN);
+        result.put("weights", HadoopHotnessJob.ACTION_WEIGHTS);
+        result.put("cluster", Map.of(
+                "input", clusterInputPath,
+                "output", clusterOutputPath,
+                "reducers", Math.max(1, clusterReducers)));
+
+        long sqlStart = System.currentTimeMillis();
+        List<Map<String, Object>> sqlRows = jdbcTemplate.queryForList(
+                "SELECT material_id, " + HadoopHotnessJob.sqlWeightCase("action") + " AS score "
+                        + "FROM user_behaviors GROUP BY material_id "
+                        + "ORDER BY score DESC, material_id ASC LIMIT ?", safeTopN);
+        long sqlMillis = System.currentTimeMillis() - sqlStart;
+
+        List<Map<String, Object>> sqlTop = new ArrayList<>();
+        for (Map<String, Object> row : sqlRows) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("materialId", ((Number) row.get("material_id")).longValue());
+            item.put("score", ((Number) row.get("score")).doubleValue());
+            sqlTop.add(item);
+        }
+
+        String output = clusterOutputPath + "/run-" + System.currentTimeMillis();
+        HadoopHotnessJob.JobResult jobResult = new HadoopHotnessJob().runCluster(
+                hadoopConfiguration, clusterInputPath, output, safeTopN, clusterReducers);
+
+        List<Map<String, Object>> mrTop = new ArrayList<>();
+        for (HadoopHotnessJob.Hotness h : jobResult.topN()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("materialId", h.materialId());
+            item.put("score", h.score());
+            mrTop.add(item);
+        }
+
+        result.put("postgresql", Map.of("elapsedMillis", sqlMillis, "top", sqlTop));
+        result.put("mapreduce", Map.of(
+                "elapsedMillis", jobResult.elapsedMillis(),
+                "totalMaterials", jobResult.totalMaterials(),
+                "mode", jobResult.mode().name(),
+                "note", jobResult.note(),
+                "top", mrTop));
+        boolean match = sameTopN(sqlTop, mrTop);
+        result.put("resultsMatch", match);
+        result.put("conclusion", match
+                ? "集群 MapReduce 与 PostgreSQL 聚合的 TopN 完全一致；耗时为真实 YARN 作业（含队列/启动开销）。"
+                : "两条链路 TopN 不一致，请检查输入路径是否指向同一份导出数据与权重口径。");
+        log.info("集群热度对比完成: rows={} sql={}ms mr={}ms 一致={}",
+                jobResult.totalMaterials(), sqlMillis, jobResult.elapsedMillis(), match);
         return result;
     }
 

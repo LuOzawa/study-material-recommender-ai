@@ -38,6 +38,10 @@ jwt:
 hadoop:
   uri: ${HADOOP_URI:hdfs://localhost:9000}
   user: ${HADOOP_USER:hadoop}
+  cluster:
+    input-path: ${HADOOP_CLUSTER_INPUT:/recommend/warehouse/user_behaviors}
+    output-path: ${HADOOP_CLUSTER_OUTPUT:/recommend/warehouse/hotness}
+    reducers: ${HADOOP_CLUSTER_REDUCERS:4}
   export:
     enabled: ${HADOOP_EXPORT_ENABLED:true}
     cron: ${HADOOP_EXPORT_CRON:0 30 2 * * ?}
