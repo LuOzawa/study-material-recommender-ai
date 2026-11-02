@@ -14,7 +14,7 @@
 - **后端**：Spring Boot 3.2.3（Java 17）+ Spring Security + JWT + Spring Data JPA + PostgreSQL 16
 - **前端**：Vue 3 + Vite 5 + Element Plus + Pinia + Vue Router + ECharts
 - **推荐引擎**：Python 3.11+（pandas / scikit-learn / numpy），UserCF + ItemCF + TF-IDF + SVD 加权融合，含离线评测（留一法 + Top-K）
-- **大数据**：Hadoop 3.3.6 —— HDFS 归档 + 定时导出按天分区 CSV + **MapReduce 热度聚合作业**（本地模式实测）
+- **大数据**：Hadoop 3.3.6 —— HDFS 归档 + 定时导出按天分区 CSV + **MapReduce 热度聚合作业**（单机伪分布式 YARN + LocalJobRunner 已实测）
 - **AI 服务**：FastAPI + **LangGraph** 智能体（意图路由 → pgvector 检索 → 相关性评分 → 查询改写 → 带引用作答）+ **vLLM** 自托管推理（Qwen2.5-7B-Instruct + bge-m3）
 - **向量库**：PostgreSQL 16 + **pgvector**（HNSW 索引、余弦距离）
 - **规模**：后端 83 个 Java 文件（含 15 个测试类）；前端 24 个文件 / 7,003 行；Python 推荐引擎 10 个文件（含 2 个测试文件）/ 1,447 行；AI 服务 32 个 Python 文件 / 2,640 行
@@ -67,7 +67,7 @@
 | # | ❌ 容易混的说法 | ✅ 准确的说法 | 为什么重要 |
 | --- | --- | --- | --- |
 | 1 | 「用 200 个用户做了评测」 | 「4 个真实用户 + 200 个**按学科偏好规则生成的模拟用户**」 | 老师说"你这 200 个用户哪来的"，如果答不上来，整章实验都不成立 |
-| 2 | 「用 Hadoop 做了分布式计算」 | 「实现了 MapReduce 作业，在**本地模式**（`LocalJobRunner`）验证；**未部署真实集群**」 | 本地模式只是同一套 API 跑在单机，和"分布式"不是一回事 |
+| 2 | 「用 Hadoop 做了分布式计算」 | 「实现了 MapReduce 作业，在**单机伪分布式 HDFS/YARN** 上提交并跑通（4 reducers）；**未做多节点集群**，也没有多机扩展性数据」 | 单机伪分布式是真的 YARN/HDFS，但只有一台机器，不能拿它证明"多机分布式"或扩展性 |
 | 3 | 「Hadoop 提升了性能」 | 「实测在当前 3 千~29 万行规模下，MapReduce **比 MySQL 单机聚合慢 5~500 倍**（迁移前实测，尚未在 PostgreSQL 重测）；Hadoop 的收益要等数据量超出单机能力才出现」 | 第五节有实测表。硬说更快，一问细节就露 |
 
 补充两处需要区分的小点：
@@ -83,7 +83,7 @@
 
 #### ✅ 代码类
 
-当前没有阻塞项：评论埋点、MapReduce 集群提交代码均已补齐。剩余是实验/论文与真实集群环境验证。
+当前没有阻塞项：评论埋点、MapReduce 集群提交代码均已补齐，单机伪分布式 YARN 已跑通。剩余是实验/论文与多节点集群验证。
 
 #### 📄 实验类（代码已就绪，只差跑与整理）
 
@@ -276,7 +276,7 @@ uv pip install -r requirements.txt
         │
    ④ 每用户去重、取 Top-N=20
         │
-   ⑤ 写回 recommendations 表（ON DUPLICATE KEY UPDATE）
+   ⑤ 写回 recommendations 表（ON CONFLICT (user_id, material_id) DO UPDATE）
         │
    ⑥ 之后后端读取时再叠加用户的偏好设置（分类加权 +2、偏好标签×0.9、
       屏蔽标签×-2）做最终排序
@@ -523,7 +523,7 @@ Driver  : 结果按权重降序取 TopN
 | 方式 | 说明 |
 | --- | --- |
 | 本地模式（`LocalJobRunner`） | `mapreduce.framework.name=local`，不需要搭集群，同一份代码可直接跑 |
-| 集群模式 | 打成 jar 后 `hadoop jar ...` 提交到真实集群（代码未改动） |
+| 集群模式 | `hadoop jar target/study-recommend-1.0.0-hadoop-job.jar ...` 提交到 HDFS/YARN；已在单机伪分布式实测（4 reducers） |
 
 ### 5.3 单机 vs MapReduce 实测对比
 
@@ -975,9 +975,9 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 > （见 9.1 / 第四节 / 第五节）。下面是真正还没做的。
 
 1. **可选补充测试**：后端 60 个、AI 服务 30 个、推荐指标/数据装配 13 个；剩余可选是 `AnalyticsService` 其余图表聚合分支（清理口径已覆盖）。
-2. **把 MapReduce 上真实集群**：现在只验证了 `LocalJobRunner`。上集群需要
-   把输入路径改成 HDFS URI、把 `setNumReduceTasks(1)` 改成多 reducer，
-   再跑一次 5.3 的对比表 —— 那张表才是「分布式」的完整论据。
+2. **多节点集群与 PostgreSQL 对比**：单机伪分布式 HDFS/YARN 已跑通（4 reducers、2000 行、约 27s），
+   但只有一台机器。要补的是多节点部署（多 NameNode/DataNode、ResourceManager/NodeManager），
+   并在 PostgreSQL 上重跑 5.3 的对比表 —— 那才是「多机分布式 + 扩展性」的完整论据。
 3. **做融合权重调参实验**：现在权重（0.3/0.3/0.2/0.2）是拍出来的。
    用 `evaluate_offline.py` 做网格搜索找最优组合，这本身就是一章实验。
 4. **答辩前想清楚模拟数据的表述**：论文和答辩里主动说明
