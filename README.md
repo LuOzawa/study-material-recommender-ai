@@ -57,7 +57,7 @@
 | 论文可用的实验数据 | 🟡 | 第四节 4.4 的三档对比表 | **200 个用户里 196 个是模拟用户**（详见 4.4） |
 | 行为埋点完整性 | 🟡 | 收藏已补 `COLLECT` | **评论不记**：`action` 枚举里没有 `COMMENT`（9.3） |
 | 数据库迁移（MySQL → PostgreSQL 16） | ✅ | 全新库 `psql -f sql/init.sql`；`scripts/migrate_mysql_to_postgres.py` 输出 `MIGRATION OK`；CI `postgres-schema` job | 历史 Hadoop 耗时对比数据采集于迁移前 MySQL，未在 PostgreSQL 重测（5.3） |
-| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（28 个用例）+ `cd ai-service && uv run pytest`（30 个用例，含真实 pgvector 集成） | 未覆盖全部业务服务，见「附：自动化测试」 |
+| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（42 个用例，含 4 个 PostgreSQL 集成用例；CI 提供 PG 服务）+ `cd ai-service && uv run pytest`（30 个）+ `recommendation` 指标测试（7 个） | 仍未覆盖全部业务服务，见「附：自动化测试」 |
 
 ### B. 三处必须区分清楚的地方
 
@@ -85,7 +85,7 @@
 
 | # | 缺的内容 | 工作量 | 补完能支撑什么 |
 | --- | --- | --- | --- |
-| 1 | **剩余单元测试**：`MaterialService`、`RecommendationService` 的反馈重排、`AuthService` 登录分支、`/api/admin/**` 的 403 门禁；Python 侧 `metrics.py`、`evaluate_offline.py`（已有 28 后端 + 30 AI） | 2~3 小时（纯 Mockito/pytest，不连库） | 论文「系统测试」章节；补齐权限与推荐重排的回归保护 |
+| 1 | **剩余测试**：`FeedbackService` 的 upsert/切换、`RecommendationService` 冷启动分支、`evaluate_offline.py` 的数据装配；现有 42 后端 + 30 AI + 7 推荐指标 | 1~2 小时（Mockito/pytest） | 论文「系统测试」章节；补齐反馈与冷启动的回归保护 |
 | 2 | **评论埋点**：给 `user_behaviors.action` 枚举加 `COMMENT`，`addComment()` 写一行 | 20 分钟（需 `ALTER TABLE`） | 「用户行为分析」维度完整 |
 | 3 | **MapReduce 上真实集群**：输入路径改 HDFS URI、`setNumReduceTasks(1)` 改多 reducer | 半天~1 天（需要集群环境） | 「分布式计算」才算真正落地 |
 
@@ -936,8 +936,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 | 🟡 | **AI 服务不存多轮状态** | LangGraph 每次请求独立执行；多轮上下文由 Spring 从 `ai_conversations` 取最近 3 轮拼入 prompt |
 | 🟡 | **Hadoop 只在本地模式验证过** | MapReduce 作业已实现并有实测对比，但没在真实集群（HDFS+YARN）上跑过，见 5.4 |
 | 🟡 | **Hadoop 对比未在 PostgreSQL 重跑** | 5.3 的 11/68/971 ms 来自迁移前 MySQL；迁移后只改了 `postgresql` 代码路径，未重新采集 |
-| 🟡 | **夜间推荐任务硬编码 `python`** | `RecommendationService.runPythonScript` 用 `cmd[0]="python"`；Python 3.11 venv 不在 PATH 时夜间任务会因 pandas 缺失失败 |
-| 🟡 | **无数据库集成测试** | CI 只验证 schema/seed；Spring 的 JPA 映射靠手工启动验证，未接入 Testcontainers |
+| 🟢 | 夜间任务需指定 Python 3.11 | `recommendation.python-command` 默认 `python`；建议设为 `../recommendation/.venv/Scripts/python.exe` 或对应 Linux 路径 |
 | 🟡 | `sql/schema.sql` 会重建全部表 | 开头 `DROP TABLE` 列出 12 张表；`sql/init.sql` = schema + seed，误执行会清业务库 |
 | 🟡 | 数据规模很小 | 4 个用户、31 条资料、95 条行为。UserCF 在这么小的数据上意义有限，冷启动问题严重 |
 | 🟡 | 单机 Hadoop 依赖 `winutils.exe` | Windows 下无 HADOOP_HOME 时 Hadoop 会打警告，已通过本地回退规避 |
@@ -951,8 +950,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 > 原列的「补反馈闭环 / 补推荐评测 / 补数据规模 / 补 Hadoop 计算」**本次全部完成**
 > （见 9.1 / 第四节 / 第五节）。下面是真正还没做的。
 
-1. **继续补测试**：后端已有 28 个用例（JWT、AI 客户端、内部资料接口、索引同步、AI 门面、异常映射），
-   AI 服务有 30 个；还缺 `MaterialService`、`RecommendationService`、`AuthService` 的业务分支。
+1. **继续补测试**：后端 42 个（JWT、AI 客户端、内部资料接口、索引同步、AI 门面、异常映射、鉴权/资料/推荐重排、PostgreSQL 集成），AI 服务 30 个，推荐指标 7 个；还缺 `FeedbackService` 的 upsert/切换与 `evaluate_offline.py` 的数据装配。
 2. **把 MapReduce 上真实集群**：现在只验证了 `LocalJobRunner`。上集群需要
    把输入路径改成 HDFS URI、把 `setNumReduceTasks(1)` 改成多 reducer，
    再跑一次 5.3 的对比表 —— 那张表才是「分布式」的完整论据。
@@ -986,8 +984,11 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 ## 附：自动化测试
 
 ```bash
-# Java：28 个用例，无需数据库
+# Java：42 个用例；4 个 PostgreSQL 集成用例需要 SPRING_DATASOURCE_URL
 cd backend && mvn test
+
+# 推荐指标：7 个 stdlib unittest（不依赖数据库）
+python -m unittest discover -s recommendation -p 'test_*.py' -v
 
 # AI 服务：30 个用例（含真实 pgvector 集成），无需 GPU
 cd ai-service && uv run pytest
@@ -1005,6 +1006,10 @@ cd ai-service && uv run python scripts/smoke_e2e.py
 | `AiIndexSyncServiceTest` | ACTIVE 推送索引、DELETED/PENDING 删除索引、资料不存在时删除、未配置跳过、同步失败不外抛 |
 | `AiServiceTest` | 最近 3 轮对话按时间正序拼入、非 ACTIVE 资料拒绝摘要、画像与收藏传给建议接口 |
 | `GlobalExceptionHandlerTest` | `ResponseStatusException` 保留 401、`AiServiceException` 映射 503 |
+| `AuthServiceTest` | 注册 trim/BCrypt/邮箱规范化、大小写重复用户名、登录 token、重置密码邮箱不匹配 |
+| `MaterialServiceTest` | 删除置 DELETED 并发布索引事件、更新只改传入字段、非 ACTIVE 详情拒绝 |
+| `RecommendationServiceTest` | LIKE 加权 / DISLIKE 剔除、全 DISLIKE 回退、Python 命令可配置 |
+| `PostgresIntegrationTest` | 大小写不敏感查询、偏好 upsert 单行 + boolean、普通用户访问 `/api/admin/**` 403、内部接口缺 token 401 |
 
 **AI 服务用例**
 

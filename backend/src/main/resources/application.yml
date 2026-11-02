@@ -66,6 +66,7 @@ storage:
 # Recommendation engine
 recommendation:
   python-script: ${RECOMMENDATION_SCRIPT:../recommendation/run_recommendation.py}
+  python-command: ${RECOMMENDATION_PYTHON:python}
   top-n: ${RECOMMENDATION_TOP_N:10}
 
 app:

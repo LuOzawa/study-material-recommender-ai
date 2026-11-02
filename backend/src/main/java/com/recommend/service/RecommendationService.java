@@ -37,6 +37,9 @@ public class RecommendationService {
     @Value("${recommendation.python-script}")
     private String pythonScript;
 
+    @Value("${recommendation.python-command:python}")
+    private String pythonCommand;
+
     @Value("${recommendation.top-n:10}")
     private int topN;
 
@@ -221,13 +224,17 @@ public class RecommendationService {
         runPythonScript();
     }
 
+    String[] buildPythonCommand(String... args) {
+        String[] cmd = new String[2 + args.length];
+        cmd[0] = pythonCommand;
+        cmd[1] = resolvePythonScriptPath();
+        System.arraycopy(args, 0, cmd, 2, args.length);
+        return cmd;
+    }
+
     private void runPythonScript(String... args) {
         try {
-            String[] cmd = new String[2 + args.length];
-            cmd[0] = "python";
-            cmd[1] = resolvePythonScriptPath();
-            System.arraycopy(args, 0, cmd, 2, args.length);
-
+            String[] cmd = buildPythonCommand(args);
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.redirectErrorStream(true);
             Process process = pb.start();

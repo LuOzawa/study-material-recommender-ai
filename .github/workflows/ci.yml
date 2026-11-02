@@ -15,6 +15,26 @@ jobs:
   backend:
     name: Backend (Java 17)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: recommend_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d recommend_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/recommend_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      JWT_SECRET: 0123456789abcdef0123456789abcdef
+      HADOOP_EXPORT_ENABLED: false
     defaults:
       run:
         working-directory: backend
@@ -25,6 +45,10 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
+      - name: Init PostgreSQL schema
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d recommend_db -v ON_ERROR_STOP=1 -f ../sql/init.sql
       - name: Test
         run: mvn -B test
       - name: Package
@@ -59,6 +83,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r recommendation/requirements.txt
+      - name: Test recommendation metrics
+        run: python -m unittest discover -s recommendation -p 'test_*.py' -v
   ai-service:
     name: AI service (FastAPI + LangGraph + pgvector)
     runs-on: ubuntu-latest
