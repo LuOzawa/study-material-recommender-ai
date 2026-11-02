@@ -1,0 +1,52 @@
+# ---- Java / Maven ----
+backend/target/
+*.jar
+*.war
+*.class
+!.mvn/wrapper/maven-wrapper.jar
+
+# ---- Node / Vite ----
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# ---- 运行时产物 ----
+backend/logs/
+backend/storage/
+logs/
+*.log
+*.log.*
+
+# ---- IDE ----
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# ---- 操作系统 ----
+.DS_Store
+Thumbs.db
+
+# ---- 环境变量与密钥（务必不要提交）----
+.env
+.env.local
+*.env
+!.env.example
+
+# ---- 打包产物与备份 ----
+release/
+*.zip
+*.7z
+*.bak
+sql/*.mojibake.bak

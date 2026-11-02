@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: study-ai-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: study_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d study_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ai-service:
+    build: ./ai-service
+    container_name: study-ai-service
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/study_ai
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://host.docker.internal:8000/v1}
+      VLLM_EMBEDDING_BASE_URL: ${VLLM_EMBEDDING_BASE_URL:-http://host.docker.internal:8001/v1}
+      VLLM_CHAT_MODEL: ${VLLM_CHAT_MODEL:-qwen2.5-7b-instruct}
+      VLLM_EMBEDDING_MODEL: ${VLLM_EMBEDDING_MODEL:-bge-m3}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+      SPRING_BASE_URL: ${SPRING_BASE_URL:-http://host.docker.internal:8080}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-change-me-internal-token}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # GPU profiles are opt-in: `docker compose --profile gpu up -d`
+  vllm-chat:
+    image: vllm/vllm-openai:latest
+    container_name: study-vllm-chat
+    profiles: ["gpu"]
+    command:
+      - "--model"
+      - "Qwen/Qwen2.5-7B-Instruct"
+      - "--served-model-name"
+      - "qwen2.5-7b-instruct"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  vllm-embed:
+    image: vllm/vllm-openai:latest
+    container_name: study-vllm-embed
+    profiles: ["gpu"]
+    command:
+      - "--model"
+      - "BAAI/bge-m3"
+      - "--task"
+      - "embed"
+      - "--served-model-name"
+      - "bge-m3"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8001"
+    ports:
+      - "8001:8001"
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  pgdata:
+  hf-cache:

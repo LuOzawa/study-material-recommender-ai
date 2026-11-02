@@ -1,0 +1,29 @@
+# 统一行尾为 LF，避免 Windows/Linux 之间产生整文件 diff
+* text=auto eol=lf
+
+# 源码
+*.java    text eol=lf
+*.xml     text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.properties text eol=lf
+*.js      text eol=lf
+*.vue     text eol=lf
+*.json    text eol=lf
+*.py      text eol=lf
+*.sql     text eol=lf
+*.md      text eol=lf
+*.sh      text eol=lf
+*.bat     text eol=crlf
+
+# 二进制
+*.jar     binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.zip     binary
+*.7z      binary
+*.woff    binary
+*.woff2   binary

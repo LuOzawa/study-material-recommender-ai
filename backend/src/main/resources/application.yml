@@ -1,0 +1,83 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: study-recommend
+
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/recommend_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+# JWT configuration
+jwt:
+  # 必须由环境变量提供，且不少于 32 字节（HS256 要求）。
+  # 未配置时应用启动直接失败，避免带着弱默认密钥上生产。
+  secret: ${JWT_SECRET:}
+  expiration: ${JWT_EXPIRATION:86400000}   # 24 hours in ms
+
+# Hadoop HDFS configuration
+hadoop:
+  uri: ${HADOOP_URI:hdfs://localhost:9000}
+  user: ${HADOOP_USER:hadoop}
+  export:
+    enabled: ${HADOOP_EXPORT_ENABLED:true}
+    cron: ${HADOOP_EXPORT_CRON:0 30 2 * * ?}
+    base-path: ${HADOOP_EXPORT_BASE_PATH:/recommend/warehouse}
+    local-root: ${HADOOP_EXPORT_LOCAL_ROOT:./storage/hadoop-export}
+
+# AI service (FastAPI + LangGraph + vLLM + pgvector)
+# 内部令牌必须与 ai-service/.env 的 AI_INTERNAL_TOKEN 一致。
+ai:
+  service:
+    enabled: ${AI_SERVICE_ENABLED:true}
+    base-url: ${AI_SERVICE_BASE_URL:http://localhost:8090}
+    internal-token: ${AI_INTERNAL_TOKEN:}
+    connect-timeout-ms: ${AI_SERVICE_CONNECT_TIMEOUT_MS:2000}
+    read-timeout-ms: ${AI_SERVICE_READ_TIMEOUT_MS:60000}
+
+# File upload
+spring.servlet.multipart:
+  max-file-size: 100MB
+  max-request-size: 100MB
+
+storage:
+  hdfs-base-path: ${HDFS_BASE_PATH:/recommend/materials}
+  local-root: ${LOCAL_STORAGE_ROOT:./storage}
+
+# Recommendation engine
+recommendation:
+  python-script: ${RECOMMENDATION_SCRIPT:../recommendation/run_recommendation.py}
+  top-n: ${RECOMMENDATION_TOP_N:10}
+
+app:
+  # 运行时日志输出目录（每次启动一个文件）
+  log:
+    dir: ${APP_LOG_DIR:logs}
+  # CORS 前端地址白名单（逗号分隔）。生产环境务必显式配置 CORS_ALLOWED_ORIGINS。
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173}
+
+logging:
+  level:
+    com.recommend: DEBUG
+    org.springframework.security: INFO
+    org.apache.hadoop: WARN
