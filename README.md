@@ -56,7 +56,8 @@
 | 推荐效果评测（离线指标） | ✅ | 第四节，`evaluate_offline.py` | 指标口径与数据装配方式需在论文说明 |
 | 论文可用的实验数据 | 🟡 | 第四节 4.4 的三档对比表 | **200 个用户里 196 个是模拟用户**（详见 4.4） |
 | 行为埋点完整性 | 🟡 | 收藏已补 `COLLECT` | **评论不记**：`action` 枚举里没有 `COMMENT`（9.3） |
-| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（26 个用例）+ `cd ai-service && uv run pytest`（30 个用例，含真实 pgvector 集成） | 未覆盖全部业务服务，见「附：自动化测试」 |
+| 数据库迁移（MySQL → PostgreSQL 16） | ✅ | 全新库 `psql -f sql/init.sql`；`scripts/migrate_mysql_to_postgres.py` 输出 `MIGRATION OK`；CI `postgres-schema` job | 历史 Hadoop 耗时对比数据采集于迁移前 MySQL，未在 PostgreSQL 重测（5.3） |
+| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（28 个用例）+ `cd ai-service && uv run pytest`（30 个用例，含真实 pgvector 集成） | 未覆盖全部业务服务，见「附：自动化测试」 |
 
 ### B. 三处必须区分清楚的地方
 
@@ -67,7 +68,7 @@
 | --- | --- | --- | --- |
 | 1 | 「用 200 个用户做了评测」 | 「4 个真实用户 + 200 个**按学科偏好规则生成的模拟用户**」 | 老师说"你这 200 个用户哪来的"，如果答不上来，整章实验都不成立 |
 | 2 | 「用 Hadoop 做了分布式计算」 | 「实现了 MapReduce 作业，在**本地模式**（`LocalJobRunner`）验证；**未部署真实集群**」 | 本地模式只是同一套 API 跑在单机，和"分布式"不是一回事 |
-| 3 | 「Hadoop 提升了性能」 | 「实测在当前 3 千~29 万行规模下，MapReduce **比 PostgreSQL 慢 5~500 倍**；Hadoop 的收益要等数据量超出单机能力才出现」 | 第五节有实测表。硬说更快，一问细节就露 |
+| 3 | 「Hadoop 提升了性能」 | 「实测在当前 3 千~29 万行规模下，MapReduce **比 MySQL 单机聚合慢 5~500 倍**（迁移前实测，尚未在 PostgreSQL 重测）；Hadoop 的收益要等数据量超出单机能力才出现」 | 第五节有实测表。硬说更快，一问细节就露 |
 
 补充两处需要区分的小点：
 
@@ -84,7 +85,7 @@
 
 | # | 缺的内容 | 工作量 | 补完能支撑什么 |
 | --- | --- | --- | --- |
-| 1 | **单元测试**：`FeedbackService` 的 upsert 语义、`RecommendationService` 的反馈重排、`AuthService` 登录、`/api/admin/**` 的 403 门禁；Python 侧 `metrics.py`、`evaluate_offline.py` | 1~2 小时（纯 Mockito，不连库） | 论文「系统测试」章节；也是答辩"你怎么验证权限控制正确"的唯一答案 |
+| 1 | **剩余单元测试**：`MaterialService`、`RecommendationService` 的反馈重排、`AuthService` 登录分支、`/api/admin/**` 的 403 门禁；Python 侧 `metrics.py`、`evaluate_offline.py`（已有 28 后端 + 30 AI） | 2~3 小时（纯 Mockito/pytest，不连库） | 论文「系统测试」章节；补齐权限与推荐重排的回归保护 |
 | 2 | **评论埋点**：给 `user_behaviors.action` 枚举加 `COMMENT`，`addComment()` 写一行 | 20 分钟（需 `ALTER TABLE`） | 「用户行为分析」维度完整 |
 | 3 | **MapReduce 上真实集群**：输入路径改 HDFS URI、`setNumReduceTasks(1)` 改多 reducer | 半天~1 天（需要集群环境） | 「分布式计算」才算真正落地 |
 
@@ -94,7 +95,7 @@
 | --- | --- | --- | --- |
 | 4 | **融合权重调参实验** | 用 `evaluate_offline.py` 对 0.3/0.3/0.2/0.2 做网格搜索 | 现在权重是拍出来的，调完才有依据 |
 | 5 | **消融实验汇总表** | 已有：单算法 vs 融合 vs 融合+反馈（4.4）；再加「反馈开/关」 | 第 5 章核心 |
-| 6 | **Hadoop 对比表** | 已有三档数据量实测（5.3） | 讨论 Hadoop 适用边界 |
+| 6 | **Hadoop 对比表** | 已有三档 MySQL 实测（5.3，迁移前）；PostgreSQL 未重跑 | 讨论 Hadoop 适用边界 |
 | 7 | **更多数据量档位** | 按 5.3 的方法继续放大数据量 | 让「何时该上 Hadoop」的拐点更清楚 |
 
 #### 📄 论文类（写作时对照）
@@ -114,14 +115,17 @@
 三条命令，都能在 10 秒内给出结果：
 
 ```bash
-# 1) 后端能编译（57 个 Java 文件）
+# 1) 后端能编译（74 个 Java 文件，含 6 个测试类）
 cd backend && mvn -q compile
 
-# 2) 推荐评测链路可跑（不连数据库，纯内存）
-cd recommendation && python evaluate_offline.py --source synthetic -n 200
+# 2) 推荐评测链路可跑（不连数据库，纯内存；需 Python 3.11）
+cd recommendation
+uv venv --python 3.11 .venv
+uv pip install -r requirements.txt
+.venv/Scripts/python evaluate_offline.py --source synthetic -n 200
 
 # 3) 灌数脚本可预览（不写库，只看会插入什么）
-python seed_synthetic_users.py --users 200        # 加 --apply 才真写
+.venv/Scripts/python seed_synthetic_users.py --users 200        # 加 --apply 才真写
 ```
 
 ### E. 当前规模
@@ -231,6 +235,12 @@ python seed_synthetic_users.py --users 200        # 加 --apply 才真写
 │   ├── 功能清单.md                       # 原始任务书功能拆解
 │   ├── 启动说明.md                       # 环境配置与运行步骤
 │   └── 部署说明.md                       # 打包与部署总结
+│
+├── scripts/                              # MySQL → PostgreSQL 一次性迁移
+│   ├── migrate_mysql_to_postgres.py      #   逐表复制 + 计数校验
+│   └── requirements-migrate.txt
+│
+├── docker/initdb/                        # Compose 首次初始化创建 study_ai
 ├── .env.example                          # 环境变量模板
 └── README.md
 ```
@@ -338,26 +348,31 @@ python seed_synthetic_users.py --users 200        # 加 --apply 才真写
 
 ```bash
 cd recommendation
+uv venv --python 3.11 .venv
+uv pip install -r requirements.txt
+
+# Windows 用 .venv/Scripts/python，Linux/macOS 用 .venv/bin/python
+PY=.venv/Scripts/python
 
 # 真实数据（需要数据库；只做 SELECT，不写库）
 export DB_PASSWORD='你的PostgreSQL口令'
-python evaluate_offline.py --source db
+$PY evaluate_offline.py --source db
 
 # 合成数据（不依赖数据库，可复现，适合出稳定的对比表）
-python evaluate_offline.py --source synthetic -n 200
+$PY evaluate_offline.py --source synthetic -n 200
 
 # 常用参数
-python evaluate_offline.py --k 5,10 --top-n 10 --min-interactions 3 --out eval.csv
+$PY evaluate_offline.py --k 5,10 --top-n 10 --min-interactions 3 --out eval.csv
 
 # 真实用户太少时，先灌一批模拟用户再把规模做起来（见 4.4）
-python seed_synthetic_users.py --users 200            # 预览，不写库
-python seed_synthetic_users.py --users 200 --apply    # 真正写入
-python seed_synthetic_users.py --cleanup --apply      # 一键撤销
+$PY seed_synthetic_users.py --users 200            # 预览，不写库
+$PY seed_synthetic_users.py --users 200 --apply    # 真正写入
+$PY seed_synthetic_users.py --cleanup --apply      # 一键撤销
 ```
 
 ### 4.3 原始数据的结果（4 个用户，样本不足）
 
-灌模拟数据之前，库里只有 4 个用户、20 条评分、102 条行为：
+灌模拟数据之前，库里只有 4 个用户、20 条评分、95 条行为：
 
 ```
 参与评测用户：3    物品数：30    Top-N：10
@@ -383,9 +398,10 @@ python seed_synthetic_users.py --cleanup --apply      # 一键撤销
 
 ```bash
 cd recommendation
-python seed_synthetic_users.py --users 200 --apply        # 灌入（默认只预览）
-python evaluate_offline.py --source db                   # 跑评测
-python seed_synthetic_users.py --cleanup --apply         # 一键撤销
+PY=.venv/Scripts/python        # Linux/macOS: .venv/bin/python
+$PY seed_synthetic_users.py --users 200 --apply        # 灌入（默认只预览）
+$PY evaluate_offline.py --source db                   # 跑评测
+$PY seed_synthetic_users.py --cleanup --apply         # 一键撤销
 ```
 
 灌完后库里的规模：
@@ -394,7 +410,7 @@ python seed_synthetic_users.py --cleanup --apply         # 一键撤销
 | --- | --- | --- |
 | `users` | 4 | **204**（其中 200 个以 `sim_` 开头） |
 | `user_ratings` | 20 | **1,793** |
-| `user_behaviors` | 102 | **2,963** |
+| `user_behaviors` | 95 | **2,963** |
 | `recommendation_feedback` | 6 | **292** |
 | `recommendations` | 0 | **3,618**（跑了推荐引擎后） |
 
@@ -521,10 +537,14 @@ POST /api/admin/hadoop/benchmark?topN=10   # 跑对比
 
 两条链路用同一份导出数据、同一套权重，输出 TopN 并校验结果是否一致。
 
-**实测环境**：Windows + JDK 17 + PostgreSQL 16，Hadoop 3.3.6 `LocalJobRunner`（单机单 reducer）。
+**实测环境**：Windows + JDK 17 + **MySQL 8（迁移前）**，Hadoop 3.3.6 `LocalJobRunner`（单机单 reducer）。
 数据量通过在临时库里复制 `user_behaviors` 行构造，真实库未改动。
 
-| 数据量 | PostgreSQL `GROUP BY` | MapReduce | 倍数 | 结果一致 |
+> 这组数字采集于迁移到 PostgreSQL 之前。迁移后 `HadoopBenchmarkService` 已改为走 PostgreSQL
+> 并在响应中使用 `postgresql` 键，但本次迁移**没有重跑**该对比，因此下表仍标注 MySQL；
+> 不要把旧数字直接当成 PostgreSQL 的实测结果。
+
+| 数据量 | MySQL 8 `GROUP BY`（迁移前） | MapReduce | 倍数 | 结果一致 |
 | --- | --- | --- | --- | --- |
 | 2,963 行 | **11 ms** | 5,544 ms | 504× | ✅ |
 | 22,404 行 | **68 ms** | 5,105 ms | 75× | ✅ |
@@ -532,15 +552,15 @@ POST /api/admin/hadoop/benchmark?topN=10   # 跑对比
 
 可以读出两条曲线：
 
-1. **PostgreSQL 基本线性增长**：11 → 68 → 971 ms（数据量涨 98 倍，耗时涨 88 倍）
+1. **MySQL 基本线性增长**：11 → 68 → 971 ms（数据量涨 98 倍，耗时涨 88 倍）
 2. **MapReduce 耗时几乎不变**：5,544 → 5,105 → 5,092 ms
    —— 说明在这个量级上，作业启动、切片、序列化、落盘这些**固定开销**占了绝大部分，
    真正的聚合计算微乎其微
 
 **这组数字该怎么写进论文**：
 
-> 在当前测试规模（万级到十万级）下，MapReduce 反而比 PostgreSQL 单机聚合慢 5~500 倍。
-> 按两条曲线的斜率粗略外推，PostgreSQL 的耗时会在**百万行量级**追平 MapReduce 的
+> 在当前测试规模（万级到十万级）下，MapReduce 反而比 MySQL 单机聚合慢 5~500 倍。
+> 按两条曲线的斜率粗略外推，MySQL 的耗时会在**百万行量级**追平 MapReduce 的
 > 约 5 秒固定开销；再往上（千万级以上，单机内存/IO 成为瓶颈时）才轮到 MapReduce
 > 的横向扩展优势体现。
 
@@ -890,9 +910,9 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 
 > 如果论文要写「用户行为分析」的评论维度，需要给 `action` 枚举加 `COMMENT` 并补一行埋点。
 
-### 9.4 种子数据（`sql/init.sql`）说明
+### 9.4 种子数据（`sql/seed.sql`）说明
 
-`sql/init.sql` 是 **2026-03-29 的快照**，里面有几处不是自然产生的数据，看代码时不要被误导：
+`sql/seed.sql` 是 **2026-03-29 的快照**，里面有几处不是自然产生的数据，看代码时不要被误导：
 
 | 字段/表 | 实际数据 | 说明 |
 | --- | --- | --- |
@@ -915,8 +935,11 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 | 🟡 | **向量维度固定** | `EMBEDDING_DIM` 默认 1024（bge-m3）；换成别的 embedding 模型必须清空 `ai_material_chunks` 重建索引 |
 | 🟡 | **AI 服务不存多轮状态** | LangGraph 每次请求独立执行；多轮上下文由 Spring 从 `ai_conversations` 取最近 3 轮拼入 prompt |
 | 🟡 | **Hadoop 只在本地模式验证过** | MapReduce 作业已实现并有实测对比，但没在真实集群（HDFS+YARN）上跑过，见 5.4 |
+| 🟡 | **Hadoop 对比未在 PostgreSQL 重跑** | 5.3 的 11/68/971 ms 来自迁移前 MySQL；迁移后只改了 `postgresql` 代码路径，未重新采集 |
+| 🟡 | **夜间推荐任务硬编码 `python`** | `RecommendationService.runPythonScript` 用 `cmd[0]="python"`；Python 3.11 venv 不在 PATH 时夜间任务会因 pandas 缺失失败 |
+| 🟡 | **无数据库集成测试** | CI 只验证 schema/seed；Spring 的 JPA 映射靠手工启动验证，未接入 Testcontainers |
 | 🟡 | `sql/schema.sql` 会重建全部表 | 开头 `DROP TABLE` 列出 12 张表；`sql/init.sql` = schema + seed，误执行会清业务库 |
-| 🟡 | 数据规模很小 | 4 个用户、31 条资料、102 条行为。UserCF 在这么小的数据上意义有限，冷启动问题严重 |
+| 🟡 | 数据规模很小 | 4 个用户、31 条资料、95 条行为。UserCF 在这么小的数据上意义有限，冷启动问题严重 |
 | 🟡 | 单机 Hadoop 依赖 `winutils.exe` | Windows 下无 HADOOP_HOME 时 Hadoop 会打警告，已通过本地回退规避 |
 | 🟡 | 前端无构建产物入库 | 按惯例排除 `dist/`，需自行 `npm run build` |
 | ⚪ | 日志查看接口会扫项目目录 | `/api/admin/logs` 在项目根 3 层内找 `*.log`，仅 ADMIN 可用 |
@@ -928,7 +951,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 > 原列的「补反馈闭环 / 补推荐评测 / 补数据规模 / 补 Hadoop 计算」**本次全部完成**
 > （见 9.1 / 第四节 / 第五节）。下面是真正还没做的。
 
-1. **继续补测试**：后端已有 26 个用例（JWT、AI 客户端、内部资料接口、索引同步、AI 门面），
+1. **继续补测试**：后端已有 28 个用例（JWT、AI 客户端、内部资料接口、索引同步、AI 门面、异常映射），
    AI 服务有 30 个；还缺 `MaterialService`、`RecommendationService`、`AuthService` 的业务分支。
 2. **把 MapReduce 上真实集群**：现在只验证了 `LocalJobRunner`。上集群需要
    把输入路径改成 HDFS URI、把 `setNumReduceTasks(1)` 改成多 reducer，
@@ -963,7 +986,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 ## 附：自动化测试
 
 ```bash
-# Java：26 个用例，无需数据库
+# Java：28 个用例，无需数据库
 cd backend && mvn test
 
 # AI 服务：30 个用例（含真实 pgvector 集成），无需 GPU
@@ -981,6 +1004,7 @@ cd ai-service && uv run python scripts/smoke_e2e.py
 | `InternalAiControllerTest` | 缺失/错误令牌返回 401；分页返回 `items` / `has_more` / `total` 与 `category_name`、`updated_at` |
 | `AiIndexSyncServiceTest` | ACTIVE 推送索引、DELETED/PENDING 删除索引、资料不存在时删除、未配置跳过、同步失败不外抛 |
 | `AiServiceTest` | 最近 3 轮对话按时间正序拼入、非 ACTIVE 资料拒绝摘要、画像与收藏传给建议接口 |
+| `GlobalExceptionHandlerTest` | `ResponseStatusException` 保留 401、`AiServiceException` 映射 503 |
 
 **AI 服务用例**
 
@@ -993,7 +1017,7 @@ cd ai-service && uv run python scripts/smoke_e2e.py
 
 `JwtUtilTest` 仍覆盖鉴权链路的根（签发、他人 token、过期、篡改、异签、弱密钥自检）。
 
-CI 每次 push 都会跑 Java + Node + Python + AI 服务四组任务（见徽章）。
+CI 每次 push 都会跑 Java + Node + Python + AI 服务 + PostgreSQL schema 五组任务（见徽章）。
 
 ---
 
