@@ -50,7 +50,7 @@
 | 推荐反馈闭环（点赞/踩影响推荐） | ✅ | 见 9.1，点踩后该资料从推荐中剔除 | — |
 | 数据分析模块（画像/热度/趋势/漏斗） | ✅ | `GET /api/analytics/dashboard?days=365` | 旧数据需把 `days` 调大才看得到 |
 | Hadoop 分布式**存储** | ✅ | `POST /api/admin/hadoop/export` 导出分区 CSV | HDFS 不可用时自动回退本地目录 |
-| Hadoop 分布式**计算**（MapReduce） | 🟡 | `POST /api/admin/hadoop/benchmark`（本地）/ `benchmark-cluster`（YARN） | **代码支持 LocalJobRunner 与真实集群提交；本环境无集群，集群路径未实测**；Windows 需 winutils（5.5） |
+| Hadoop 分布式**计算**（MapReduce） | 🟡 | `POST /api/admin/hadoop/benchmark`（本地）/ `benchmark-cluster`（YARN） | **单机伪分布式 YARN 已实测（4 reducers）；多节点集群未测**；Windows 需 winutils（5.5） |
 | AI 大模型模块（问答/摘要/建议/语义搜索） | ✅ | 启动 ai-service 后调 `/api/ai/*`；回答带 `citations` | 需要 vLLM 提供的 OpenAI 兼容服务（本地无 GPU 可用 `ai-service/scripts/stub_vllm.py` 联调） |
 | 管理员模块（用户/资料/分类/日志/备份） | ✅ | `/api/admin/**` 全部要求 ADMIN | — |
 | 推荐效果评测（离线指标） | ✅ | 第四节，`evaluate_offline.py` | 指标口径与数据装配方式需在论文说明 |
@@ -575,9 +575,14 @@ POST /api/admin/hadoop/benchmark?topN=10   # 跑对比
 ```bash
 # 打包后提交到真实集群（需 HADOOP_CONF_DIR / core-site.xml 已配置）
 mvn -DskipTests package
-hadoop jar target/study-recommend-1.0.0.jar com.recommend.hadoop.HadoopHotnessJob \
+hadoop jar target/study-recommend-1.0.0-hadoop-job.jar \
   /recommend/warehouse/user_behaviors /recommend/warehouse/hotness 10 4
 ```
+
+> `hadoop-job` 是只含 MapReduce 类的普通 jar；`study-recommend-1.0.0.jar` 是 Spring Boot 可执行 jar，
+> 直接用 `hadoop jar` 会启动 `JarLauncher` 而不是作业，别混用。
+> JDK 17 下 YARN 容器需要 `JAVA_TOOL_OPTIONS=--add-opens=java.base/java.lang=ALL-UNNAMED`；
+> Hadoop 3.3.6 官方推荐 JDK 11。
 
 或在 Spring 启动后：
 
@@ -586,10 +591,14 @@ curl -X POST "http://localhost:8080/api/admin/hadoop/benchmark-cluster?topN=10" 
   -H "Authorization: Bearer <ADMIN_TOKEN>"
 ```
 
+**已在本机单机伪分布式实测**：Ubuntu 24.04 + Hadoop 3.3.6 + JDK 17，HDFS/YARN 各一个节点，
+2000 行 CSV、4 个 reducer，作业约 27 秒完成，输出 4 个 part 文件（TopN 一致）。
+这是**单节点** YARN，不是多节点集群；不能拿它做“多机扩展性”结论。
+
 仍然没有做的：
 
-- ❌ **没有在真实 HDFS/YARN 集群上跑过**：本环境无集群，只验证了本地 `LocalJobRunner` 与进程内实现；
-  集群路径已通过编译与参数校验，但性能数字需在集群上采集。
+- ❌ **没有在多节点 HDFS/YARN 集群上跑过**：单机伪分布式已验证提交/执行/输出链路；
+  多节点还需要部署 NameNode/DataNode + ResourceManager/NodeManager 并重跑 5.3 的对比表。
 - ❌ **没有把 CSV 灌进 Hive 外部表的 DDL**（当前直接读 CSV）。
 
 ### 5.5 Windows 上跑 MapReduce 的前置条件
@@ -949,7 +958,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 | 🟡 | **AI 接口非流式** | `/api/ai/chat` 一次性返回完整回答，前端无 token 级打字机效果 |
 | 🟡 | **向量维度固定** | `EMBEDDING_DIM` 默认 1024（bge-m3）；换成别的 embedding 模型必须清空 `ai_material_chunks` 重建索引 |
 | 🟡 | **AI 服务不存多轮状态** | LangGraph 每次请求独立执行；多轮上下文由 Spring 从 `ai_conversations` 取最近 3 轮拼入 prompt |
-| 🟡 | **Hadoop 集群路径未实测** | 代码已支持 HDFS 输入、YARN 提交与多 reducer，但本环境没有真实集群，只有本地模式实测数据 |
+| 🟡 | **Hadoop 多节点集群未测** | 单机伪分布式 HDFS/YARN 已实测（4 reducers、2000 行、27s）；多节点扩展性结论未采集 |
 | 🟡 | **Hadoop 对比未在 PostgreSQL 重跑** | 5.3 的 11/68/971 ms 来自迁移前 MySQL；迁移后只改了 `postgresql` 代码路径，未重新采集 |
 | 🟢 | 夜间任务需指定 Python 3.11 | `recommendation.python-command` 默认 `python`；建议设为 `../recommendation/.venv/Scripts/python.exe` 或对应 Linux 路径 |
 | 🟡 | `sql/schema.sql` 会重建全部表 | 开头 `DROP TABLE` 列出 12 张表；`sql/init.sql` = schema + seed，误执行会清业务库 |
