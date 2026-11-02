@@ -124,7 +124,7 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          test "$(psql -h localhost -U postgres -d recommend_db -tAc "insert into categories (name) values ('CI') returning id")" = "12"
+          test "$(psql -h localhost -U postgres -d recommend_db -tAc "insert into categories (name) values ('CI') returning id" | head -1)" = "12"
           psql -h localhost -U postgres -d recommend_db -c "insert into users (username,password) values ('CaseUser','x')"
           if psql -h localhost -U postgres -d recommend_db -c "insert into users (username,password) values ('caseuser','x')"; then
             echo "case-insensitive unique index is missing" >&2
