@@ -308,6 +308,12 @@ public class MaterialService {
         comment.setContent(normalized);
         comment = commentRepository.save(comment);
 
+        UserBehavior behavior = new UserBehavior();
+        behavior.setUserId(userId);
+        behavior.setMaterialId(materialId);
+        behavior.setAction(UserBehavior.Action.COMMENT);
+        behaviorRepository.save(behavior);
+
         String username = userRepository.findById(userId).map(User::getUsername).orElse("未知用户");
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", comment.getId());

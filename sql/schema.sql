@@ -174,7 +174,7 @@ CREATE TABLE user_behaviors (
     user_id     BIGINT      NOT NULL,
     material_id BIGINT      NOT NULL,
     action      VARCHAR(10) NOT NULL
-                CHECK (action IN ('VIEW', 'LIKE', 'DISLIKE', 'COLLECT', 'RATE', 'DOWNLOAD')),
+                CHECK (action IN ('VIEW', 'LIKE', 'DISLIKE', 'COLLECT', 'RATE', 'DOWNLOAD', 'COMMENT')),
     score       NUMERIC(4, 2),
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_behavior_material FOREIGN KEY (material_id)

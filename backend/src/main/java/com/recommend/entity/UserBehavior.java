@@ -33,5 +33,5 @@ public class UserBehavior {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
-    public enum Action { VIEW, LIKE, DISLIKE, COLLECT, RATE, DOWNLOAD }
+    public enum Action { VIEW, LIKE, DISLIKE, COLLECT, RATE, DOWNLOAD, COMMENT }
 }

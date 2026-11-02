@@ -83,6 +83,26 @@ class MaterialServiceTest {
                 .hasMessage("资料不存在或已下架");
     }
 
+    @Test
+    void addCommentWritesCommentBehavior() {
+        Material material = material(1L, Material.Status.ACTIVE);
+        when(materialRepository.findById(1L)).thenReturn(Optional.of(material));
+        when(commentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        com.recommend.entity.User user = new com.recommend.entity.User();
+        user.setId(2L);
+        user.setUsername("alice");
+        when(userRepository.findById(2L)).thenReturn(Optional.of(user));
+
+        materialService.addComment(2L, 1L, "这条资料很有用");
+
+        org.mockito.ArgumentCaptor<com.recommend.entity.UserBehavior> captor =
+                org.mockito.ArgumentCaptor.forClass(com.recommend.entity.UserBehavior.class);
+        verify(behaviorRepository).save(captor.capture());
+        assertThat(captor.getValue().getAction())
+                .isEqualTo(com.recommend.entity.UserBehavior.Action.COMMENT);
+        assertThat(captor.getValue().getMaterialId()).isEqualTo(1L);
+    }
+
     private Material material(Long id, Material.Status status) {
         Material material = new Material();
         material.setId(id);
