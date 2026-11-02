@@ -17,7 +17,7 @@
 - **大数据**：Hadoop 3.3.6 —— HDFS 归档 + 定时导出按天分区 CSV + **MapReduce 热度聚合作业**（本地模式实测）
 - **AI 服务**：FastAPI + **LangGraph** 智能体（意图路由 → pgvector 检索 → 相关性评分 → 查询改写 → 带引用作答）+ **vLLM** 自托管推理（Qwen2.5-7B-Instruct + bge-m3）
 - **向量库**：PostgreSQL 16 + **pgvector**（HNSW 索引、余弦距离）
-- **规模**：后端 74 个 Java 文件；前端 24 个文件 / 7,003 行；Python 推荐引擎 8 个文件 / 1,447 行；AI 服务 32 个 Python 文件 / 2,640 行
+- **规模**：后端 79 个 Java 文件（含 11 个测试类）；前端 24 个文件 / 7,003 行；Python 推荐引擎 10 个文件（含 2 个测试文件）/ 1,447 行；AI 服务 32 个 Python 文件 / 2,640 行
 
 项目为本科毕业设计作品。
 
@@ -57,7 +57,7 @@
 | 论文可用的实验数据 | 🟡 | 第四节 4.4 的三档对比表 | **200 个用户里 196 个是模拟用户**（详见 4.4） |
 | 行为埋点完整性 | 🟡 | 收藏已补 `COLLECT` | **评论不记**：`action` 枚举里没有 `COMMENT`（9.3） |
 | 数据库迁移（MySQL → PostgreSQL 16） | ✅ | 全新库 `psql -f sql/init.sql`；`scripts/migrate_mysql_to_postgres.py` 输出 `MIGRATION OK`；CI `postgres-schema` job | 历史 Hadoop 耗时对比数据采集于迁移前 MySQL，未在 PostgreSQL 重测（5.3） |
-| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（42 个用例，含 4 个 PostgreSQL 集成用例；CI 提供 PG 服务）+ `cd ai-service && uv run pytest`（30 个）+ `recommendation` 指标测试（7 个） | 仍未覆盖全部业务服务，见「附：自动化测试」 |
+| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（48 个用例，含 4 个 PostgreSQL 集成用例；CI 提供 PG 服务）+ `cd ai-service && uv run pytest`（30 个）+ `recommendation` 测试（13 个） | 仍未覆盖全部业务服务，见「附：自动化测试」 |
 
 ### B. 三处必须区分清楚的地方
 
@@ -85,9 +85,8 @@
 
 | # | 缺的内容 | 工作量 | 补完能支撑什么 |
 | --- | --- | --- | --- |
-| 1 | **剩余测试**：`FeedbackService` 的 upsert/切换、`RecommendationService` 冷启动分支、`evaluate_offline.py` 的数据装配；现有 42 后端 + 30 AI + 7 推荐指标 | 1~2 小时（Mockito/pytest） | 论文「系统测试」章节；补齐反馈与冷启动的回归保护 |
-| 2 | **评论埋点**：给 `user_behaviors.action` 枚举加 `COMMENT`，`addComment()` 写一行 | 20 分钟（需 `ALTER TABLE`） | 「用户行为分析」维度完整 |
-| 3 | **MapReduce 上真实集群**：输入路径改 HDFS URI、`setNumReduceTasks(1)` 改多 reducer | 半天~1 天（需要集群环境） | 「分布式计算」才算真正落地 |
+| 1 | **评论埋点**：给 `user_behaviors.action` 枚举加 `COMMENT`，`addComment()` 写一行 | 20 分钟（需 `ALTER TABLE`） | 「用户行为分析」维度完整 |
+| 2 | **MapReduce 上真实集群**：输入路径改 HDFS URI、`setNumReduceTasks(1)` 改多 reducer | 半天~1 天（需要集群环境） | 「分布式计算」才算真正落地 |
 
 #### 📄 实验类（代码已就绪，只差跑与整理）
 
@@ -115,7 +114,7 @@
 三条命令，都能在 10 秒内给出结果：
 
 ```bash
-# 1) 后端能编译（74 个 Java 文件，含 6 个测试类）
+# 1) 后端能编译（79 个 Java 文件，含 11 个测试类）
 cd backend && mvn -q compile
 
 # 2) 推荐评测链路可跑（不连数据库，纯内存；需 Python 3.11）
@@ -209,6 +208,8 @@ uv pip install -r requirements.txt
 │   ├── itemcf.py                         #   基于物品的协同过滤
 │   ├── tfidf_recommend.py                #   基于内容（标题+简介+标签）
 │   ├── svd_recommend.py                  #   TruncatedSVD 矩阵分解
+│   ├── test_metrics.py                   #   指标纯函数单测（7 个）
+│   ├── test_evaluate.py                  #   数据装配/反馈重排单测（6 个）
 │   └── requirements.txt
 │
 ├── ai-service/                           # ★ FastAPI + LangGraph + vLLM + pgvector
@@ -950,7 +951,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 > 原列的「补反馈闭环 / 补推荐评测 / 补数据规模 / 补 Hadoop 计算」**本次全部完成**
 > （见 9.1 / 第四节 / 第五节）。下面是真正还没做的。
 
-1. **继续补测试**：后端 42 个（JWT、AI 客户端、内部资料接口、索引同步、AI 门面、异常映射、鉴权/资料/推荐重排、PostgreSQL 集成），AI 服务 30 个，推荐指标 7 个；还缺 `FeedbackService` 的 upsert/切换与 `evaluate_offline.py` 的数据装配。
+1. **可选补充测试**：后端 48 个、AI 服务 30 个、推荐指标/数据装配 13 个；剩余可选是 `AnalyticsService` 聚合分支、`AdminService` 批量审核/导入、`UserService` 交互分支。
 2. **把 MapReduce 上真实集群**：现在只验证了 `LocalJobRunner`。上集群需要
    把输入路径改成 HDFS URI、把 `setNumReduceTasks(1)` 改成多 reducer，
    再跑一次 5.3 的对比表 —— 那张表才是「分布式」的完整论据。
@@ -984,10 +985,10 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 ## 附：自动化测试
 
 ```bash
-# Java：42 个用例；4 个 PostgreSQL 集成用例需要 SPRING_DATASOURCE_URL
+# Java：48 个用例；4 个 PostgreSQL 集成用例需要 SPRING_DATASOURCE_URL
 cd backend && mvn test
 
-# 推荐指标：7 个 stdlib unittest（不依赖数据库）
+# 推荐指标 + 数据装配：13 个 stdlib unittest（不依赖数据库）
 python -m unittest discover -s recommendation -p 'test_*.py' -v
 
 # AI 服务：30 个用例（含真实 pgvector 集成），无需 GPU
@@ -1008,7 +1009,8 @@ cd ai-service && uv run python scripts/smoke_e2e.py
 | `GlobalExceptionHandlerTest` | `ResponseStatusException` 保留 401、`AiServiceException` 映射 503 |
 | `AuthServiceTest` | 注册 trim/BCrypt/邮箱规范化、大小写重复用户名、登录 token、重置密码邮箱不匹配 |
 | `MaterialServiceTest` | 删除置 DELETED 并发布索引事件、更新只改传入字段、非 ACTIVE 详情拒绝 |
-| `RecommendationServiceTest` | LIKE 加权 / DISLIKE 剔除、全 DISLIKE 回退、Python 命令可配置 |
+| `RecommendationServiceTest` | LIKE 加权 / DISLIKE 剔除、全 DISLIKE 回退、冷启动热门兜底、Python 命令可配置 |
+| `FeedbackServiceTest` | 新建反馈、同用户同资料切换、非 ACTIVE 拒绝、撤销、按 materialId 聚合 |
 | `PostgresIntegrationTest` | 大小写不敏感查询、偏好 upsert 单行 + boolean、普通用户访问 `/api/admin/**` 403、内部接口缺 token 401 |
 
 **AI 服务用例**

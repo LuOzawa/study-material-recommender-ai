@@ -75,6 +75,24 @@ class RecommendationServiceTest {
     }
 
     @Test
+    void emptyRecommendationsFallBackToHotMaterials() {
+        when(preferenceService.getPreferenceData(1L)).thenReturn(new UserPreferenceService.PreferenceData(
+                Set.of(), Set.of(), Set.of(), 2, false));
+        when(recommendationRepository.findByUserIdOrderByScoreDesc(eq(1L), any())).thenReturn(List.of());
+        when(feedbackService.mapByUser(1L)).thenReturn(Map.of());
+        when(materialRepository.findTopByViewCount(any())).thenReturn(List.of(
+                material(1L), material(2L), material(3L)));
+
+        List<Material> result = recommendationService.getRecommendations(1L);
+
+        assertThat(result).extracting(Material::getId).containsExactly(1L, 2L);
+        assertThat(result).allSatisfy(material -> {
+            assertThat(material.getRecommendationAlgorithm()).isEqualTo("HOT");
+            assertThat(material.getRecommendationScore()).isNull();
+        });
+    }
+
+    @Test
     void pythonCommandIsConfigurable() {
         String[] command = recommendationService.buildPythonCommand("--user-id", "2");
 
