@@ -8,6 +8,7 @@ agent over HTTP.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import socket
@@ -18,6 +19,7 @@ import threading
 import time
 import uuid
 
+import asyncpg
 import httpx
 import uvicorn
 
@@ -85,11 +87,27 @@ def wait_for(url: str, timeout: float = 30.0) -> None:
     raise RuntimeError(f"timeout waiting for {url}")
 
 
+def reset_shared_database(url: str) -> None:
+    """The CI suite shares one Postgres; drop index tables left by pytest."""
+
+    async def _reset() -> None:
+        connection = await asyncpg.connect(url)
+        try:
+            await connection.execute(
+                "DROP TABLE IF EXISTS ai_material_chunks, ai_material_index_state, ai_index_meta"
+            )
+        finally:
+            await connection.close()
+
+    asyncio.run(_reset())
+
+
 def main() -> int:
     test_db = os.getenv("TEST_DATABASE_URL")
     pg = None
     if test_db:
         database_url = test_db
+        reset_shared_database(database_url)
     else:
         import pgserver
 
@@ -122,12 +140,29 @@ def main() -> int:
         stderr=subprocess.STDOUT,
         text=True,
     )
+    logs: list[str] = []
+
+    def drain() -> None:
+        for line in process.stdout or []:
+            logs.append(line)
+
+    threading.Thread(target=drain, daemon=True).start()
 
     base = f"http://127.0.0.1:{app_port}"
     headers = {"X-Internal-Token": token}
     checks: list[tuple[str, bool, str]] = []
     try:
-        wait_for(f"{base}/healthz")
+        try:
+            wait_for(f"{base}/healthz")
+        except Exception:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            print("--- ai-service output ---")
+            print("".join(logs[-60:]))
+            raise
         with httpx.Client(base_url=base, headers=headers, timeout=30.0) as client:
             for material in MATERIALS:
                 response = client.post("/internal/v1/index/materials", json=material)
