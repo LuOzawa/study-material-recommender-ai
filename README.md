@@ -14,10 +14,10 @@
 - **后端**：Spring Boot 3.2.3（Java 17）+ Spring Security + JWT + Spring Data JPA + PostgreSQL 16
 - **前端**：Vue 3 + Vite 5 + Element Plus + Pinia + Vue Router + ECharts
 - **推荐引擎**：Python 3.11+（pandas / scikit-learn / numpy），UserCF + ItemCF + TF-IDF + SVD 加权融合，含离线评测（留一法 + Top-K）
-- **大数据**：Hadoop 3.3.6 —— HDFS 归档 + 定时导出按天分区 CSV + **MapReduce 热度聚合作业**（单机伪分布式 YARN + LocalJobRunner 已实测）
+- **大数据**：Hadoop 3.3.6 —— HDFS 归档 + 定时导出按天分区 CSV + **MapReduce 热度聚合作业**（3 节点 HDFS/YARN 已实测，4 reducers）
 - **AI 服务**：FastAPI + **LangGraph** 智能体（意图路由 → pgvector 检索 → 相关性评分 → 查询改写 → 带引用作答）+ **vLLM** 自托管推理（Qwen2.5-7B-Instruct + bge-m3）
 - **向量库**：PostgreSQL 16 + **pgvector**（HNSW 索引、余弦距离）
-- **规模**：后端 83 个 Java 文件（含 15 个测试类）；前端 24 个文件 / 7,003 行；Python 推荐引擎 10 个文件（含 2 个测试文件）/ 1,447 行；AI 服务 32 个 Python 文件 / 2,640 行
+- **规模**：后端 83 个 Java 文件（含 15 个测试类）；前端 24 个文件 / 7,003 行；Python 推荐引擎 11 个文件（含 2 个测试文件）/ 2,001 行；AI 服务 32 个 Python 文件 / 2,640 行
 
 项目为本科毕业设计作品。
 
@@ -50,14 +50,14 @@
 | 推荐反馈闭环（点赞/踩影响推荐） | ✅ | 见 9.1，点踩后该资料从推荐中剔除 | — |
 | 数据分析模块（画像/热度/趋势/漏斗） | ✅ | `GET /api/analytics/dashboard?days=365` | 旧数据需把 `days` 调大才看得到 |
 | Hadoop 分布式**存储** | ✅ | `POST /api/admin/hadoop/export` 导出分区 CSV | HDFS 不可用时自动回退本地目录 |
-| Hadoop 分布式**计算**（MapReduce） | 🟡 | `POST /api/admin/hadoop/benchmark`（本地）/ `benchmark-cluster`（YARN） | **单机伪分布式 YARN 已实测（4 reducers）；多节点集群未测**；Windows 需 winutils（5.5） |
+| Hadoop 分布式**计算**（MapReduce） | 🟡 | `hadoop jar ...-hadoop-job.jar` 提交到 3 节点 HDFS/YARN；`benchmark-cluster` 接口见 5.4 | **3 节点（同宿主）HDFS/YARN 已实测：2 DataNode、2 NM、replication=2、4 reducers**；Spring 端 `benchmark-cluster` 在 Windows 宿主的容器启动未验证，表 5.3 用 CLI 数据 |
 | AI 大模型模块（问答/摘要/建议/语义搜索） | ✅ | 启动 ai-service 后调 `/api/ai/*`；回答带 `citations` | 需要 vLLM 提供的 OpenAI 兼容服务（本地无 GPU 可用 `ai-service/scripts/stub_vllm.py` 联调） |
 | 管理员模块（用户/资料/分类/日志/备份） | ✅ | `/api/admin/**` 全部要求 ADMIN | — |
 | 推荐效果评测（离线指标） | ✅ | 第四节，`evaluate_offline.py` | 指标口径与数据装配方式需在论文说明 |
 | 论文可用的实验数据 | 🟡 | 第四节 4.4 的三档对比表 | **200 个用户里 196 个是模拟用户**（详见 4.4） |
 | 行为埋点完整性 | 🟡 | 收藏补 `COLLECT`，评论补 `COMMENT`（本次） | **DISLIKE 行为仍不写入**；推荐反馈走 `recommendation_feedback`（9.3） |
-| 数据库迁移（MySQL → PostgreSQL 16） | ✅ | 全新库 `psql -f sql/init.sql`；`scripts/migrate_mysql_to_postgres.py` 输出 `MIGRATION OK`；CI `postgres-schema` job | 历史 Hadoop 耗时对比数据采集于迁移前 MySQL，未在 PostgreSQL 重测（5.3） |
-| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（60 个用例，含 4 个 PostgreSQL 集成用例；CI 提供 PG 服务）+ `cd ai-service && uv run pytest`（30 个）+ `recommendation` 测试（13 个） | 仍未覆盖全部业务服务，见「附：自动化测试」 |
+| 数据库迁移（MySQL → PostgreSQL 16） | ✅ | 全新库 `psql -f sql/init.sql`；`scripts/migrate_mysql_to_postgres.py` 输出 `MIGRATION OK`；CI `postgres-schema` job | 对比表已在 PostgreSQL 16.2 上重跑（5.3） |
+| 单元测试 / 接口测试 | ✅ | `cd backend && mvn test`（60 个用例，含 4 个 PostgreSQL 集成用例；CI 提供 PG 服务）+ `cd ai-service && uv run pytest`（30 个）+ `recommendation` 测试（16 个） | 仍未覆盖全部业务服务，见「附：自动化测试」 |
 
 ### B. 三处必须区分清楚的地方
 
@@ -67,8 +67,8 @@
 | # | ❌ 容易混的说法 | ✅ 准确的说法 | 为什么重要 |
 | --- | --- | --- | --- |
 | 1 | 「用 200 个用户做了评测」 | 「4 个真实用户 + 200 个**按学科偏好规则生成的模拟用户**」 | 老师说"你这 200 个用户哪来的"，如果答不上来，整章实验都不成立 |
-| 2 | 「用 Hadoop 做了分布式计算」 | 「实现了 MapReduce 作业，在**单机伪分布式 HDFS/YARN** 上提交并跑通（4 reducers）；**未做多节点集群**，也没有多机扩展性数据」 | 单机伪分布式是真的 YARN/HDFS，但只有一台机器，不能拿它证明"多机分布式"或扩展性 |
-| 3 | 「Hadoop 提升了性能」 | 「实测在当前 3 千~29 万行规模下，MapReduce **比 MySQL 单机聚合慢 5~500 倍**（迁移前实测，尚未在 PostgreSQL 重测）；Hadoop 的收益要等数据量超出单机能力才出现」 | 第五节有实测表。硬说更快，一问细节就露 |
+| 2 | 「用 Hadoop 做了分布式计算」 | 「实现了 MapReduce 作业，在**3 个 VM 的 HDFS/YARN（1 master + 2 worker，同宿主）**上提交并跑通（4 reducers、replication=2）；**没有多物理机/多宿主扩展性数据**」 | 这是真多节点 HDFS/YARN，但三台 VM 在同一台 Windows 宿主上，不能拿它证明多机架/多物理机的扩展性 |
+| 3 | 「Hadoop 提升了性能」 | 「实测在当前 3 千~29 万行规模下，PostgreSQL 单机聚合比 3 节点 MapReduce **快 221~22,005 倍**；Hadoop 的收益要等数据量超出单机能力且集群足够大才可能出现」 | 第五节有实测表。在这个规模硬说 Hadoop 更快，一问细节就露 |
 
 补充两处需要区分的小点：
 
@@ -83,15 +83,15 @@
 
 #### ✅ 代码类
 
-当前没有阻塞项：评论埋点、MapReduce 集群提交代码均已补齐，单机伪分布式 YARN 已跑通。剩余是实验/论文与多节点集群验证。
+当前没有阻塞项：评论埋点、MapReduce 集群提交代码均已补齐；3 节点（同宿主）HDFS/YARN 已跑通，PostgreSQL 对比与权重网格搜索也已完成。剩余是论文写作与多物理机扩展性实验。
 
-#### 📄 实验类（代码已就绪，只差跑与整理）
+#### 📄 实验类（已完成，可写论文）
 
 | # | 内容 | 怎么产出 | 论文用在哪 |
 | --- | --- | --- | --- |
-| 4 | **融合权重调参实验** | 用 `evaluate_offline.py` 对 0.3/0.3/0.2/0.2 做网格搜索 | 现在权重是拍出来的，调完才有依据 |
+| 4 | ✅ **融合权重调参实验** | 已完成 286 组网格搜索 + 双留出；测试集未超过采用阈值，保留 0.3/0.3/0.2/0.2（4.6） | 第 4 章权重依据 |
 | 5 | **消融实验汇总表** | 已有：单算法 vs 融合 vs 融合+反馈（4.4）；再加「反馈开/关」 | 第 5 章核心 |
-| 6 | **Hadoop 对比表** | 已有三档 MySQL 实测（5.3，迁移前）；PostgreSQL 未重跑 | 讨论 Hadoop 适用边界 |
+| 6 | ✅ **Hadoop 对比表** | 已完成 PostgreSQL 16.2 vs 3 节点 MapReduce 三档实测（5.3） | 讨论 Hadoop 适用边界 |
 | 7 | **更多数据量档位** | 按 5.3 的方法继续放大数据量 | 让「何时该上 Hadoop」的拐点更清楚 |
 
 #### 📄 论文类（写作时对照）
@@ -130,7 +130,7 @@ uv pip install -r requirements.txt
 | --- | --- | --- |
 | 后端 Java | 57 | 5,198 |
 | 前端 src | 24 | 7,003 |
-| Python 推荐引擎 / 评测 | 8 | 1,447 |
+| Python 推荐引擎 / 评测 | 11 | 2,001 |
 | SQL | 2 | — |
 | **仓库总文件** | **105** | — |
 
@@ -409,7 +409,7 @@ $PY seed_synthetic_users.py --cleanup --apply         # 一键撤销
 | --- | --- | --- |
 | `users` | 4 | **204**（其中 200 个以 `sim_` 开头） |
 | `user_ratings` | 20 | **1,793** |
-| `user_behaviors` | 95 | **2,963** |
+| `user_behaviors` | 95 | **2,956** |
 | `recommendation_feedback` | 6 | **292** |
 | `recommendations` | 0 | **3,618**（跑了推荐引擎后） |
 
@@ -422,24 +422,24 @@ $PY seed_synthetic_users.py --cleanup --apply         # 一键撤销
 
 | 模型 | K | Precision | Recall | HitRate | NDCG | 覆盖率 |
 | --- | --- | --- | --- | --- | --- | --- |
-| SVD | 10 | 0.0495 | 0.4950 | 0.4950 | 0.2366 | 1.0000 |
-| ItemCF | 10 | 0.0805 | 0.8050 | 0.8050 | 0.3962 | 1.0000 |
-| TF-IDF | 10 | 0.0805 | 0.8050 | 0.8050 | 0.4485 | 1.0000 |
-| UserCF | 10 | 0.0810 | 0.8100 | 0.8100 | 0.4506 | 1.0000 |
-| **Hybrid（融合）** | 10 | **0.0820** | **0.8200** | **0.8200** | **0.4586** | 1.0000 |
-| Hybrid+多样 | 10 | 0.0820 | 0.8200 | 0.8200 | 0.4586 | 1.0000 |
-| **Hybrid+反馈** | 5 | **0.1300** | **0.6500** | **0.6500** | **0.4542** | 1.0000 |
-| Hybrid+反馈 | 10 | 0.0810 | 0.8100 | 0.8100 | **0.5058** | 1.0000 |
+| SVD | 10 | 0.0490 | 0.4900 | 0.4900 | 0.2300 | 1.0000 |
+| ItemCF | 10 | 0.0790 | 0.7900 | 0.7900 | 0.3845 | 1.0000 |
+| TF-IDF | 10 | 0.0795 | 0.7950 | 0.7950 | 0.4452 | 1.0000 |
+| UserCF | 10 | 0.0810 | 0.8100 | 0.8100 | 0.4520 | 1.0000 |
+| **Hybrid（融合）** | 10 | 0.0810 | 0.8100 | 0.8100 | **0.4571** | 1.0000 |
+| Hybrid+多样 | 10 | 0.0810 | 0.8100 | 0.8100 | 0.4571 | 1.0000 |
+| **Hybrid+反馈** | 5 | **0.1290** | **0.6450** | **0.6450** | **0.4551** | 1.0000 |
+| Hybrid+反馈 | 10 | 0.0805 | 0.8050 | 0.8050 | **0.5074** | 1.0000 |
 
 可以读出的结论（**写得保守一点更安全**）：
 
-1. **融合优于所有单算法**：Recall@10 0.8200，高于 UserCF 0.8100、
-   ItemCF / TF-IDF 0.8050、SVD 0.4950。但**领先 UserCF 只有 1 个百分点**，
-   差距不大 —— 这与「用户偏好由学科决定、而 UserCF 恰好能学到这一点」的
-   数据生成方式有关，不能过度解读。
-2. **用户反馈显著改善排序质量**：NDCG@10 从 0.4586 提升到 0.5058（+10.3%），
-   Precision@5 从 0.1250 提升到 0.1300。注意 Recall@10 反而略降
-   （0.8200 → 0.8100）—— 反馈把「没用」的资料剔除后，个别用户原本能命中的
+1. **融合在 Recall@10 上与 UserCF 持平**（0.8100），高于 ItemCF 0.7900、
+   TF-IDF 0.7950、SVD 0.4900；NDCG@10 为 0.4571，仅比 UserCF 0.4520 高 0.0051。
+   优势很小 —— 这与「用户偏好由学科决定、而 UserCF 恰好能学到这一点」的
+   数据生成方式有关，不能过度解读成融合显著优于协同过滤。
+2. **用户反馈显著改善排序质量**：NDCG@10 从 0.4571 提升到 0.5074（+11.0%），
+   Precision@5 从 0.1240 提升到 0.1290。注意 Recall@10 反而略降
+   （0.8100 → 0.8050）—— 反馈把「没用」的资料剔除后，个别用户原本能命中的
    物品被挤出了前 10。**这说明反馈主要提升的是「排名质量」而不是「召回率」**，
    论文里应当这么写。
 3. **覆盖率恒为 1.0**：库里只有 30 条 ACTIVE 资料，200 个用户下所有资料都会被
@@ -471,6 +471,32 @@ $PY seed_synthetic_users.py --cleanup --apply         # 一键撤销
 结论方向与 4.4 一致（融合 > 单算法，反馈 > 无反馈），说明评测链路是稳定的。
 
 ---
+
+### 4.6 融合权重网格搜索（验证/测试双留出）
+
+把 `0.3/0.3/0.2/0.2` 当作 baseline，在 **0.1 步长的四维单纯形**上枚举 286 组权重。
+每个用户从正反馈中留出 **2 个不同物品**：一个只用于选权重（validation），另一个只用于最终报告
+（test），两个都不进入训练集；因此选权重不会偷看 test。参与调参 200 个用户，3 个正反馈不足的用户跳过。
+
+| UserCF | ItemCF | TF-IDF | SVD | val NDCG@10 | val Recall@10 | test NDCG@10 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.10 | 0.30 | 0.40 | 0.20 | **0.3789** | 0.7250 | 0.3918 |
+| 0.10 | 0.20 | 0.50 | 0.20 | 0.3758 | 0.7100 | 0.4014 |
+| 0.20 | 0.20 | 0.40 | 0.20 | 0.3744 | 0.7200 | 0.4045 |
+| 0.20 | 0.10 | 0.50 | 0.20 | 0.3743 | 0.7200 | 0.4096 |
+| 0.50 | 0.50 | 0.00 | 0.00 | 0.3740 | 0.7250 | 0.4104 |
+| **baseline 0.30** | **0.30** | **0.20** | **0.20** | 0.3651 | 0.7350 | **0.3960** |
+
+验证集最优是 `0.10/0.30/0.40/0.20`，validation NDCG@10 从 0.3651 提到 0.3789；
+但它的 **test NDCG@10 是 0.3918，比 baseline 的 0.3960 低 0.0042**，没有达到“提升 ≥0.005”
+的采用阈值（虽然 test Recall@10 从 0.7350 升到 0.7450）。按预设规则**保留 baseline
+`0.3/0.3/0.2/0.2`**，不把验证集最优硬塞进生产。
+
+完整 286 组在
+[`recommendation/experiments/tuning_results.csv`](recommendation/experiments/tuning_results.csv)，
+汇总在 [`recommendation/experiments/tuning_summary.json`](recommendation/experiments/tuning_summary.json)。
+论文里应写清楚：这是 200 个模拟用户上的**调参结论**，test 只是单次留出，不能当作真实线上收益；
+且“验证集最优不等于测试集最优”，所以采用规则要预先固定。
 
 ## 五、Hadoop 部分（存储 + 计算）
 
@@ -523,7 +549,7 @@ Driver  : 结果按权重降序取 TopN
 | 方式 | 说明 |
 | --- | --- |
 | 本地模式（`LocalJobRunner`） | `mapreduce.framework.name=local`，不需要搭集群，同一份代码可直接跑 |
-| 集群模式 | `hadoop jar target/study-recommend-1.0.0-hadoop-job.jar ...` 提交到 HDFS/YARN；已在单机伪分布式实测（4 reducers） |
+| 集群模式 | `hadoop jar backend/target/study-recommend-1.0.0-hadoop-job.jar ...` 提交到 HDFS/YARN；已在 3 节点（同宿主）HDFS/YARN 实测（4 reducers） |
 
 ### 5.3 单机 vs MapReduce 实测对比
 
@@ -536,36 +562,38 @@ POST /api/admin/hadoop/benchmark?topN=10   # 跑对比
 
 两条链路用同一份导出数据、同一套权重，输出 TopN 并校验结果是否一致。
 
-**实测环境**：Windows + JDK 17 + **MySQL 8（迁移前）**，Hadoop 3.3.6 `LocalJobRunner`（单机单 reducer）。
-数据量通过在临时库里复制 `user_behaviors` 行构造，真实库未改动。
+**实测环境**：PostgreSQL 16.2（Windows 宿主，`shared_buffers=16MB`、`max_connections=20`）
++ Hadoop 3.3.6（3 台 Ubuntu 24.04 VM：1 master + 2 worker，同宿主；2 DataNode、2 NodeManager、
+`dfs.replication=2`、4 reducers、JDK 17）。
 
-> 这组数字采集于迁移到 PostgreSQL 之前。迁移后 `HadoopBenchmarkService` 已改为走 PostgreSQL
-> 并在响应中使用 `postgresql` 键，但本次迁移**没有重跑**该对比，因此下表仍标注 MySQL；
-> 不要把旧数字直接当成 PostgreSQL 的实测结果。
+数据来自 200 个模拟用户生成的基准 `user_behaviors`（2,956 行），再按行复制到
+`2,963 / 22,404 / 290,162` 三档；PostgreSQL 与 Hadoop 读同一份 CSV，真实库未被改动。
+每档 PostgreSQL 先预热 1 次再测 3 次取中位数；MapReduce 先跑 1 次预热，再测 3 次取中位数。
+MapReduce 通过集群 CLI（`hadoop jar`）提交；`benchmark-cluster` 的 Windows 宿主客户端未跑通，原因见 5.4。
 
-| 数据量 | MySQL 8 `GROUP BY`（迁移前） | MapReduce | 倍数 | 结果一致 |
+| 数据量 | PostgreSQL 16.2 `GROUP BY` | 3 节点 MapReduce（4 reducers） | 倍数 | 结果一致 |
 | --- | --- | --- | --- | --- |
-| 2,963 行 | **11 ms** | 5,544 ms | 504× | ✅ |
-| 22,404 行 | **68 ms** | 5,105 ms | 75× | ✅ |
-| 290,162 行 | **971 ms** | 5,092 ms | 5.2× | ✅ |
+| 2,963 行 | **1.2 ms** | 26,406 ms | 22,005× | ✅ |
+| 22,404 行 | **11.3 ms** | 26,628 ms | 2,356× | ✅ |
+| 290,162 行 | **141.3 ms** | 31,256 ms | 221× | ✅ |
 
 可以读出两条曲线：
 
-1. **MySQL 基本线性增长**：11 → 68 → 971 ms（数据量涨 98 倍，耗时涨 88 倍）
-2. **MapReduce 耗时几乎不变**：5,544 → 5,105 → 5,092 ms
-   —— 说明在这个量级上，作业启动、切片、序列化、落盘这些**固定开销**占了绝大部分，
-   真正的聚合计算微乎其微
+1. **PostgreSQL 基本线性增长**：1.2 → 11.3 → 141.3 ms（数据量涨 98 倍，耗时约涨 118 倍）；
+   290k 行时执行计划为 `Parallel Seq Scan + Partial HashAggregate + top-N heapsort`，符合预期。
+2. **MapReduce 耗时被固定开销主导**：26.4 → 26.6 → 31.3 秒；数据从 3k 涨到 290k，
+   计算部分只多约 5 秒，绝大部分是提交、容器启动、JVM、staging/落盘开销。
+   这是 3 台 2 GB VM 的小集群，不能当作大集群吞吐量。
 
 **这组数字该怎么写进论文**：
 
-> 在当前测试规模（万级到十万级）下，MapReduce 反而比 MySQL 单机聚合慢 5~500 倍。
-> 按两条曲线的斜率粗略外推，MySQL 的耗时会在**百万行量级**追平 MapReduce 的
-> 约 5 秒固定开销；再往上（千万级以上，单机内存/IO 成为瓶颈时）才轮到 MapReduce
-> 的横向扩展优势体现。
+> 在当前 3 千~29 万行规模下，PostgreSQL 单机聚合比 3 节点 MapReduce 快 **221~22,005 倍**。
+> 本实验证明的是「这个规模不需要 Hadoop」，不是「Hadoop 更快」；也没有足够数据外推
+> 百万/千万行时的拐点。Hadoop 的潜在价值只在数据量超出单机能力、且集群规模足够时，
+> 需要另做多物理机实验才能讨论。
 
-**不要写成「Hadoop 提升了性能」** —— 这不是实测结论。正确写法是
-「Hadoop 的价值在于数据量超出单机能力后的可扩展性，本项目在现有数据规模下
-尚未进入该区间，因此改用 Hadoop 并不划算」，并附上这张实测表。
+**不要写成「Hadoop 提升了性能」**。正确写法是「Hadoop 的价值在于超出单机能力后的可扩展性；
+本项目现有数据规模下，PostgreSQL 单机聚合是压倒性更优解」，并附上这张实测表。
 
 ### 5.4 集群模式与仍然没有做的
 
@@ -574,8 +602,8 @@ POST /api/admin/hadoop/benchmark?topN=10   # 跑对比
 
 ```bash
 # 打包后提交到真实集群（需 HADOOP_CONF_DIR / core-site.xml 已配置）
-mvn -DskipTests package
-hadoop jar target/study-recommend-1.0.0-hadoop-job.jar \
+mvn -q -DskipTests package -f backend/pom.xml
+hadoop jar backend/target/study-recommend-1.0.0-hadoop-job.jar \
   /recommend/warehouse/user_behaviors /recommend/warehouse/hotness 10 4
 ```
 
@@ -591,14 +619,25 @@ curl -X POST "http://localhost:8080/api/admin/hadoop/benchmark-cluster?topN=10" 
   -H "Authorization: Bearer <ADMIN_TOKEN>"
 ```
 
-**已在本机单机伪分布式实测**：Ubuntu 24.04 + Hadoop 3.3.6 + JDK 17，HDFS/YARN 各一个节点，
-2000 行 CSV、4 个 reducer，作业约 27 秒完成，输出 4 个 part 文件（TopN 一致）。
-这是**单节点** YARN，不是多节点集群；不能拿它做“多机扩展性”结论。
+**已在 3 节点（同宿主）HDFS/YARN 实测**：Ubuntu 24.04 + Hadoop 3.3.6 + JDK 17；
+`hadoop-master` 跑 NameNode / SecondaryNameNode / ResourceManager，`hadoop-worker1/2` 跑
+DataNode / NodeManager；`dfs.replication=2`，4 个 reducer；2,963 行 CSV 作业约 26.4 秒，
+290,162 行约 31.3 秒，输出 4 个 part 文件，TopN 与 PostgreSQL 一致。
+证据（节点列表、副本位置、容器分布、作业状态）见
+[`docs/多节点Hadoop验证.md`](docs/多节点Hadoop验证.md)。
+
+> 这是**三台 VM 跑在同一台 Windows 宿主**上的多节点 HDFS/YARN，不是多物理机；
+> 不能拿它做多机架/硬件扩展性结论。
+
+**`benchmark-cluster` 的 Windows 宿主限制**：导出到 HDFS 已验证成功；但从 Windows 宿主的
+Spring 提交 YARN 作业时，容器启动脚本被生成成 Windows 路径格式（`%PWD%`、`%JAVA_HOME%`），
+AM 报 `fg: no job control`。因此 5.3 的 MapReduce 数字用集群内 `hadoop jar` CLI 采集，
+`POST /api/admin/hadoop/benchmark-cluster` 在本机宿主**未验证**；部署到 Linux 宿主或
+Linux 容器后应重新验证该接口。
 
 仍然没有做的：
 
-- ❌ **没有在多节点 HDFS/YARN 集群上跑过**：单机伪分布式已验证提交/执行/输出链路；
-  多节点还需要部署 NameNode/DataNode + ResourceManager/NodeManager 并重跑 5.3 的对比表。
+- ❌ **没有多物理机/多宿主集群**：3 个 VM 共享同一宿主，只能证明多节点软件链路，不能证明硬件扩展性。
 - ❌ **没有把 CSV 灌进 Hive 外部表的 DDL**（当前直接读 CSV）。
 
 ### 5.5 Windows 上跑 MapReduce 的前置条件
@@ -958,8 +997,8 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 | 🟡 | **AI 接口非流式** | `/api/ai/chat` 一次性返回完整回答，前端无 token 级打字机效果 |
 | 🟡 | **向量维度固定** | `EMBEDDING_DIM` 默认 1024（bge-m3）；换成别的 embedding 模型必须清空 `ai_material_chunks` 重建索引 |
 | 🟡 | **AI 服务不存多轮状态** | LangGraph 每次请求独立执行；多轮上下文由 Spring 从 `ai_conversations` 取最近 3 轮拼入 prompt |
-| 🟡 | **Hadoop 多节点集群未测** | 单机伪分布式 HDFS/YARN 已实测（4 reducers、2000 行、27s）；多节点扩展性结论未采集 |
-| 🟡 | **Hadoop 对比未在 PostgreSQL 重跑** | 5.3 的 11/68/971 ms 来自迁移前 MySQL；迁移后只改了 `postgresql` 代码路径，未重新采集 |
+| 🟡 | **Hadoop 多节点仅同宿主** | 3 个 VM（1 master + 2 worker）HDFS/YARN 已实测；同一 Windows 宿主，不是多物理机，不能外推硬件扩展性 |
+| 🟡 | **benchmark-cluster 在 Windows 宿主未验证** | 3 节点 CLI 已实测；Spring 从 Windows 提交时容器启动脚本变成 Windows 路径格式，接口留待 Linux 宿主复验（5.4） |
 | 🟢 | 夜间任务需指定 Python 3.11 | `recommendation.python-command` 默认 `python`；建议设为 `../recommendation/.venv/Scripts/python.exe` 或对应 Linux 路径 |
 | 🟡 | `sql/schema.sql` 会重建全部表 | 开头 `DROP TABLE` 列出 12 张表；`sql/init.sql` = schema + seed，误执行会清业务库 |
 | 🟡 | 数据规模很小 | 4 个用户、31 条资料、95 条行为。UserCF 在这么小的数据上意义有限，冷启动问题严重 |
@@ -974,12 +1013,11 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 > 原列的「补反馈闭环 / 补推荐评测 / 补数据规模 / 补 Hadoop 计算」**本次全部完成**
 > （见 9.1 / 第四节 / 第五节）。下面是真正还没做的。
 
-1. **可选补充测试**：后端 60 个、AI 服务 30 个、推荐指标/数据装配 13 个；剩余可选是 `AnalyticsService` 其余图表聚合分支（清理口径已覆盖）。
-2. **多节点集群与 PostgreSQL 对比**：单机伪分布式 HDFS/YARN 已跑通（4 reducers、2000 行、约 27s），
-   但只有一台机器。要补的是多节点部署（多 NameNode/DataNode、ResourceManager/NodeManager），
-   并在 PostgreSQL 上重跑 5.3 的对比表 —— 那才是「多机分布式 + 扩展性」的完整论据。
-3. **做融合权重调参实验**：现在权重（0.3/0.3/0.2/0.2）是拍出来的。
-   用 `evaluate_offline.py` 做网格搜索找最优组合，这本身就是一章实验。
+1. **可选补充测试**：后端 60 个、AI 服务 30 个、推荐指标/数据装配 16 个；剩余可选是 `AnalyticsService` 其余图表聚合分支（清理口径已覆盖）。
+2. **多物理机扩展性实验（可选）**：3 个 VM 的多节点 HDFS/YARN 与 PostgreSQL 对比已完成（5.3/5.4）；
+   若要讨论多机架/硬件扩展，需要把 worker 拆到不同物理机，并补更大数据量档位。
+3. **权重调参的进一步实验（可选）**：286 组网格搜索已完成，test 未超过采用阈值，保留 0.3/0.3/0.2/0.2（4.6）；
+   可再试更细步长或按 Recall/NDCG 的业务偏好重选目标。
 4. **答辩前想清楚模拟数据的表述**：论文和答辩里主动说明
    「数据构成 = 4 真实用户 + 200 模拟用户，模拟数据按学科偏好规则生成」，
    比被老师问出来要好。
@@ -1009,7 +1047,7 @@ GET /api/analytics/dashboard?days=365     → 覆盖近一年，旧演示数据�
 # Java：60 个用例；4 个 PostgreSQL 集成用例需要 SPRING_DATASOURCE_URL
 cd backend && mvn test
 
-# 推荐指标 + 数据装配：13 个 stdlib unittest（不依赖数据库）
+# 推荐指标 + 数据装配 + 权重调参：16 个 stdlib unittest（不依赖数据库）
 python -m unittest discover -s recommendation -p 'test_*.py' -v
 
 # AI 服务：30 个用例（含真实 pgvector 集成），无需 GPU

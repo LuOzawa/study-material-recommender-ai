@@ -1,0 +1,65 @@
+{
+  "environment": {
+    "postgresql": "16.2 bundled pgserver, 127.0.0.1:55162, shared_buffers=16MB, max_connections=20",
+    "hadoop": "3.3.6, 3 Ubuntu 24.04 VMs on one Windows host, 2 DataNodes, 2 NodeManagers, replication=2, 4 reducers",
+    "data": "200 simulated users; base user_behaviors 2,956 rows; duplicated to 2,963/22,404/290,162",
+    "method": "1 warm-up + 3 measured runs per engine; medians; same CSV for both"
+  },
+  "clusterNodes": 3,
+  "dataNodes": 2,
+  "reducers": 4,
+  "scales": [
+    {
+      "rows": 2963,
+      "sqlTimesMs": [
+        1.2,
+        1.2,
+        1.3
+      ],
+      "sqlMedianMs": 1.2,
+      "mrTimesMs": [
+        26703,
+        26234,
+        26406
+      ],
+      "mrMedianMs": 26406,
+      "ratio": 22005.0,
+      "resultsMatch": true
+    },
+    {
+      "rows": 22404,
+      "sqlTimesMs": [
+        11.3,
+        11.5,
+        11.3
+      ],
+      "sqlMedianMs": 11.3,
+      "mrTimesMs": [
+        21303,
+        26628,
+        26846
+      ],
+      "mrMedianMs": 26628,
+      "ratio": 2356.46,
+      "resultsMatch": true
+    },
+    {
+      "rows": 290162,
+      "sqlTimesMs": [
+        117.9,
+        141.3,
+        143.1
+      ],
+      "sqlMedianMs": 141.3,
+      "mrTimesMs": [
+        31256,
+        31563,
+        26652
+      ],
+      "mrMedianMs": 31256,
+      "ratio": 221.2,
+      "resultsMatch": true
+    }
+  ],
+  "note": "MapReduce timing from cluster CLI (hadoop jar); Spring benchmark-cluster not verified on Windows host; see README 5.4."
+}

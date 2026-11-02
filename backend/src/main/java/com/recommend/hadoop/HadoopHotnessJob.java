@@ -234,7 +234,7 @@ public class HadoopHotnessJob {
 
     /**
      * hadoop jar 入口：
-     * {@code hadoop jar study-recommend-1.0.0.jar com.recommend.hadoop.HadoopHotnessJob \
+     * {@code hadoop jar study-recommend-1.0.0-hadoop-job.jar \
      *   /recommend/warehouse/user_behaviors /recommend/warehouse/hotness 10 4}
      */
     public static void main(String[] args) throws Exception {
@@ -254,7 +254,12 @@ public class HadoopHotnessJob {
     private Job createJob(Configuration conf, List<Path> inputs, Path output,
                           int reducers, String name) throws IOException {
         Job job = Job.getInstance(conf, name);
-        job.setJarByClass(HadoopHotnessJob.class);
+        String jobJar = conf.get("hadoop.job.jar", "");
+        if (jobJar.isBlank()) {
+            job.setJarByClass(HadoopHotnessJob.class);
+        } else {
+            job.setJar(jobJar);
+        }
         job.setMapperClass(HotnessMapper.class);
         job.setReducerClass(HotnessReducer.class);
         job.setMapOutputKeyClass(LongWritable.class);

@@ -38,6 +38,7 @@ jwt:
 hadoop:
   uri: ${HADOOP_URI:hdfs://localhost:9000}
   user: ${HADOOP_USER:hadoop}
+  job-jar: ${HADOOP_JOB_JAR:}
   cluster:
     input-path: ${HADOOP_CLUSTER_INPUT:/recommend/warehouse/user_behaviors}
     output-path: ${HADOOP_CLUSTER_OUTPUT:/recommend/warehouse/hotness}

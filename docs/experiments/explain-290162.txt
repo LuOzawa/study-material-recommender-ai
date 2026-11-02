@@ -1,0 +1,33 @@
+                                                                                                                                     QUERY PLAN                                                                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=9032.04..9032.07 rows=10 width=40) (actual time=136.296..140.333 rows=10 loops=1)
+   Buffers: shared hit=2490
+   ->  Sort  (cost=9032.04..9032.12 rows=30 width=40) (actual time=136.293..140.330 rows=10 loops=1)
+         Sort Key: (sum(CASE upper((action)::text) WHEN 'VIEW'::text THEN 1.0 WHEN 'LIKE'::text THEN 2.0 WHEN 'COLLECT'::text THEN 2.5 WHEN 'RATE'::text THEN 1.5 WHEN 'DOWNLOAD'::text THEN 2.0 WHEN 'DISLIKE'::text THEN '-1.0'::numeric ELSE '0'::numeric END)) DESC, material_id
+         Sort Method: top-N heapsort  Memory: 25kB
+         Buffers: shared hit=2490
+         ->  Finalize GroupAggregate  (cost=9027.35..9031.40 rows=30 width=40) (actual time=136.178..140.296 rows=30 loops=1)
+               Group Key: material_id
+               Buffers: shared hit=2487
+               ->  Gather Merge  (cost=9027.35..9030.80 rows=30 width=40) (actual time=136.159..140.223 rows=60 loops=1)
+                     Workers Planned: 1
+                     Workers Launched: 1
+                     Buffers: shared hit=2487
+                     ->  Sort  (cost=8027.34..8027.41 rows=30 width=40) (actual time=87.311..87.314 rows=30 loops=2)
+                           Sort Key: material_id
+                           Sort Method: quicksort  Memory: 28kB
+                           Buffers: shared hit=2487
+                           Worker 0:  Sort Method: quicksort  Memory: 27kB
+                           ->  Partial HashAggregate  (cost=8026.23..8026.60 rows=30 width=40) (actual time=87.257..87.266 rows=30 loops=2)
+                                 Group Key: material_id
+                                 Batches: 1  Memory Usage: 32kB
+                                 Buffers: shared hit=2479
+                                 Worker 0:  Batches: 1  Memory Usage: 32kB
+                                 ->  Parallel Seq Scan on user_behaviors  (cost=0.00..4185.84 rows=170684 width=14) (actual time=0.015..18.217 rows=145081 loops=2)
+                                       Buffers: shared hit=2479
+ Planning:
+   Buffers: shared hit=160 dirtied=1
+ Planning Time: 0.808 ms
+ Execution Time: 140.435 ms
+(29 rows)
+

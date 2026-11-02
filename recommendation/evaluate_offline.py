@@ -92,6 +92,22 @@ def build_rating_matrix(ratings_df: pd.DataFrame, behaviors_df: pd.DataFrame) ->
     return merged
 
 
+def collect_positive_items(ratings_df: pd.DataFrame,
+                           behaviors_df: pd.DataFrame) -> Dict[int, set]:
+    """收集每个用户的正反馈物品：评分 >= 3，或行为属于 LIKE/COLLECT/DOWNLOAD/RATE。"""
+    positive = {}
+    for uid, group in ratings_df.groupby("user_id"):
+        items = group[group["rating"] >= 3]["material_id"].astype(int).tolist()
+        if items:
+            positive[int(uid)] = set(items)
+
+    for uid, group in behaviors_df.groupby("user_id"):
+        items = group[group["action"].isin(POSITIVE_ACTIONS)]["material_id"].astype(int).tolist()
+        if items:
+            positive.setdefault(int(uid), set()).update(int(x) for x in items)
+    return positive
+
+
 def build_ground_truth(ratings_df: pd.DataFrame,
                        behaviors_df: pd.DataFrame,
                        seed: int,
@@ -105,16 +121,7 @@ def build_ground_truth(ratings_df: pd.DataFrame,
     """
     rng = np.random.default_rng(seed)
 
-    positive = {}
-    for uid, group in ratings_df.groupby("user_id"):
-        items = group[group["rating"] >= 3]["material_id"].astype(int).tolist()
-        if items:
-            positive[int(uid)] = set(items)
-
-    for uid, group in behaviors_df.groupby("user_id"):
-        items = group[group["action"].isin(POSITIVE_ACTIONS)]["material_id"].astype(int).tolist()
-        if items:
-            positive.setdefault(int(uid), set()).update(int(x) for x in items)
+    positive = collect_positive_items(ratings_df, behaviors_df)
 
     ground_truth: Dict[int, List[int]] = {}
     holdout_items: Dict[int, set] = {}
@@ -286,7 +293,8 @@ def run_models(train_ratings: pd.DataFrame,
                train_behaviors: pd.DataFrame,
                materials_df: pd.DataFrame,
                feedback_df: pd.DataFrame,
-               top_n: int) -> Dict[str, pd.DataFrame]:
+               top_n: int,
+               weights: dict | None = None) -> Dict[str, pd.DataFrame]:
     """跑全部算法，返回 {模型名: 推荐结果 DataFrame}。"""
     models: Dict[str, pd.DataFrame] = {}
 
@@ -297,7 +305,8 @@ def run_models(train_ratings: pd.DataFrame,
 
     # 融合：复用生产脚本的 blend_scores（同权重、同归一化、同抖动）
     blended = blend_scores(
-        models["UserCF"], models["ItemCF"], models["TF-IDF"], models["SVD"]
+        models["UserCF"], models["ItemCF"], models["TF-IDF"], models["SVD"],
+        weights=weights,
     )
     if not blended.empty:
         models["Hybrid（融合）"] = (
@@ -305,7 +314,8 @@ def run_models(train_ratings: pd.DataFrame,
             .groupby("user_id").head(top_n).reset_index(drop=True)
         )
         models["Hybrid+多样"] = merge_recommendations(
-            models["UserCF"], models["ItemCF"], models["TF-IDF"], models["SVD"]
+            models["UserCF"], models["ItemCF"], models["TF-IDF"], models["SVD"],
+            weights=weights,
         )
         models["Hybrid+反馈"] = apply_feedback_rerank(blended, feedback_df, top_n)
 
@@ -328,10 +338,19 @@ def main() -> int:
     parser.add_argument("--min-interactions", type=int, default=3,
                         help="交互数少于该值的用户不参与评测")
     parser.add_argument("--out", default="", help="把结果写成 CSV 的路径")
+    parser.add_argument("--weights", default="",
+                        help="可选融合权重，格式 usercf,itemcf,tfidf,svd；不传用生产默认值")
     args = parser.parse_args()
 
     ks = [int(x) for x in args.k.split(",") if x.strip()]
     top_n = max(args.top_n, max(ks))
+
+    weights = None
+    if args.weights.strip():
+        values = [float(x) for x in args.weights.split(",") if x.strip()]
+        if len(values) != 4 or any(v < 0 for v in values) or sum(values) <= 0:
+            parser.error("--weights 需要四个非负数，例如 0.3,0.3,0.2,0.2")
+        weights = dict(zip(("usercf", "itemcf", "tfidf", "svd"), values))
 
     # 1) 数据
     if args.source == "synthetic":
@@ -356,15 +375,17 @@ def main() -> int:
     train_behaviors = drop_holdout(behaviors_df, holdout) if not behaviors_df.empty else behaviors_df
 
     # 3) 跑模型
-    models = run_models(train_ratings, train_behaviors, materials_df, feedback_df, top_n)
+    models = run_models(train_ratings, train_behaviors, materials_df, feedback_df, top_n,
+                        weights=weights)
 
     # 4) 指标
     print("=" * 78)
     print(f"推荐效果离线评测（leave-one-out）")
     print(f"数据源：{label}")
     print(f"参与评测用户：{len(ground_truth)}    物品数：{len(all_items)}    Top-N：{top_n}")
-    print(f"融合权重：UserCF {WEIGHTS['usercf']} / ItemCF {WEIGHTS['itemcf']} / "
-          f"TF-IDF {WEIGHTS['tfidf']} / SVD {WEIGHTS['svd']}")
+    effective_weights = weights or WEIGHTS
+    print(f"融合权重：UserCF {effective_weights['usercf']} / ItemCF {effective_weights['itemcf']} / "
+          f"TF-IDF {effective_weights['tfidf']} / SVD {effective_weights['svd']}")
     print("=" * 78)
 
     rows = []

@@ -13,6 +13,8 @@ from evaluate_offline import (
     drop_holdout,
     to_rec_lists,
 )
+from run_recommendation import blend_scores
+from tune_weights import build_two_way_holdout, select_best
 
 
 class EvaluateAssemblyTest(unittest.TestCase):
@@ -106,6 +108,65 @@ class EvaluateAssemblyTest(unittest.TestCase):
 
         self.assertEqual(len(result), 2)
         self.assertTrue((result["score"] < 0).all())
+
+
+    def test_blend_scores_accepts_explicit_weights(self) -> None:
+        usercf = pd.DataFrame([
+            {"user_id": 1, "material_id": 1, "score": 1.0, "algorithm": "USERCF"},
+            {"user_id": 1, "material_id": 2, "score": 5.0, "algorithm": "USERCF"},
+        ])
+        itemcf = pd.DataFrame([
+            {"user_id": 1, "material_id": 1, "score": 5.0, "algorithm": "ITEMCF"},
+            {"user_id": 1, "material_id": 2, "score": 1.0, "algorithm": "ITEMCF"},
+        ])
+        user_only = blend_scores(
+            usercf, itemcf,
+            weights={"usercf": 2.0, "itemcf": 0.0, "tfidf": 0.0, "svd": 0.0})
+        item_only = blend_scores(
+            usercf, itemcf,
+            weights={"usercf": 0.0, "itemcf": 1.0, "tfidf": 0.0, "svd": 0.0})
+
+        user_scores = user_only.set_index("material_id")["score"]
+        item_scores = item_only.set_index("material_id")["score"]
+        self.assertGreater(user_scores[2], user_scores[1])
+        self.assertGreater(item_scores[1], item_scores[2])
+
+    def test_two_way_holdout_keeps_validation_and_test_distinct(self) -> None:
+        ratings = pd.DataFrame([
+            {"user_id": 1, "material_id": 1, "rating": 5},
+            {"user_id": 1, "material_id": 2, "rating": 4},
+            {"user_id": 1, "material_id": 3, "rating": 3},
+            {"user_id": 2, "material_id": 4, "rating": 4},
+            {"user_id": 2, "material_id": 5, "rating": 5},
+        ])
+        behaviors = pd.DataFrame(columns=["user_id", "material_id", "action"])
+
+        val, test, holdout, skipped = build_two_way_holdout(
+            ratings, behaviors, min_positive=3, seed=7)
+        val2, test2, holdout2, skipped2 = build_two_way_holdout(
+            ratings, behaviors, min_positive=3, seed=7)
+
+        self.assertEqual(set(val), {1})
+        self.assertEqual(skipped, 1)
+        self.assertNotEqual(val[1], test[1])
+        self.assertEqual(holdout[1], {val[1][0], test[1][0]})
+        self.assertEqual((val, test, holdout, skipped),
+                         (val2, test2, holdout2, skipped2))
+
+    def test_select_best_uses_validation_then_recall(self) -> None:
+        baseline = {"usercf": 0.3, "itemcf": 0.3, "tfidf": 0.2, "svd": 0.2}
+        rows = [
+            {"w_usercf": 0.3, "w_itemcf": 0.3, "w_tfidf": 0.2, "w_svd": 0.2,
+             "val_ndcg@10": 0.50, "val_recall@10": 0.80},
+            {"w_usercf": 0.4, "w_itemcf": 0.3, "w_tfidf": 0.2, "w_svd": 0.1,
+             "val_ndcg@10": 0.52, "val_recall@10": 0.78},
+            {"w_usercf": 0.2, "w_itemcf": 0.3, "w_tfidf": 0.3, "w_svd": 0.2,
+             "val_ndcg@10": 0.52, "val_recall@10": 0.82},
+        ]
+
+        best = select_best(rows, baseline)
+
+        self.assertEqual(best["w_usercf"], 0.2)
 
 
 if __name__ == "__main__":

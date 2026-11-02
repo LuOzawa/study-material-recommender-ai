@@ -1,0 +1,52 @@
+2026-11-02 10:18:43,492 INFO client.DefaultNoHARMFailoverProxyProvider: Connecting to ResourceManager at hadoop-master/192.168.57.128:8032
+2026-11-02 10:18:43,839 WARN mapreduce.JobResourceUploader: Hadoop command-line option parsing not performed. Implement the Tool interface and execute your application with ToolRunner to remedy this.
+2026-11-02 10:18:43,862 INFO mapreduce.JobResourceUploader: Disabling Erasure Coding for path: /tmp/hadoop-yarn/staging/ubuntu/.staging/job_1793612626950_0018
+2026-11-02 10:18:44,202 INFO input.FileInputFormat: Total input files to process : 1
+2026-11-02 10:18:44,311 INFO mapreduce.JobSubmitter: number of splits:1
+2026-11-02 10:18:44,540 INFO mapreduce.JobSubmitter: Submitting tokens for job: job_1793612626950_0018
+2026-11-02 10:18:44,540 INFO mapreduce.JobSubmitter: Executing with tokens: []
+2026-11-02 10:18:44,733 INFO conf.Configuration: resource-types.xml not found
+2026-11-02 10:18:44,733 INFO resource.ResourceUtils: Unable to find 'resource-types.xml'.
+2026-11-02 10:18:44,793 INFO impl.YarnClientImpl: Submitted application application_1793612626950_0018
+2026-11-02 10:18:44,829 INFO mapreduce.Job: The url to track the job: http://hadoop-master:8088/proxy/application_1793612626950_0018/
+2026-11-02 10:19:15,002 INFO hadoop.HadoopHotnessJob: 集群 MapReduce 完成: 30 条资料, 耗时 31563 ms, reducers=4
+26	22090.500
+11	21838.000
+3	21743.000
+28	21242.500
+27	20365.000
+25	19634.000
+30	19479.500
+23	19146.500
+29	19090.000
+8	18438.500
+4	13643.5
+8	18438.5
+12	16294.5
+16	10555.5
+20	11830.0
+24	16422.0
+28	21242.5
+1	18302.5
+5	17331.5
+9	12910.0
+13	16741.0
+17	9129.0
+21	11984.0
+25	19634.0
+29	19090.0
+2	13592.0
+6	13651.0
+10	11377.5
+14	12713.0
+18	14726.5
+22	10857.5
+26	22090.5
+30	19479.5
+3	21743.0
+7	17677.0
+11	21838.0
+15	13943.0
+19	13384.0
+23	19146.5
+27	20365.0

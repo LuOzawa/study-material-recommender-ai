@@ -114,7 +114,7 @@ def _diversify_per_user(merged_df: pd.DataFrame, top_n: int) -> pd.DataFrame:
     return pd.concat(rows, ignore_index=True)
 
 
-def blend_scores(*dfs) -> pd.DataFrame:
+def blend_scores(*dfs, weights: dict | None = None) -> pd.DataFrame:
     """
     Normalize + weight + blend multiple algorithm outputs into one score per
     (user_id, material_id) pair, WITHOUT the final diversification step.
@@ -133,14 +133,19 @@ def blend_scores(*dfs) -> pd.DataFrame:
         if max_score > 0:
             combined.loc[mask, "score"] = combined.loc[mask, "score"] / max_score
 
-    algo_weights = {
-        "USERCF": WEIGHTS["usercf"],
-        "ITEMCF": WEIGHTS["itemcf"],
-        "TFIDF": WEIGHTS["tfidf"],
-        "SVD": WEIGHTS["svd"],
-    }
+    algo_weights = dict(WEIGHTS if weights is None else weights)
+    required = {"usercf", "itemcf", "tfidf", "svd"}
+    missing = required.difference(algo_weights)
+    if missing:
+        raise ValueError(f"融合权重缺少: {', '.join(sorted(missing))}")
+    if any(v < 0 for v in algo_weights.values()):
+        raise ValueError("融合权重不能为负数")
+    total = sum(algo_weights.values())
+    if total <= 0:
+        raise ValueError("融合权重总和必须大于 0")
+    algo_weights = {k: v / total for k, v in algo_weights.items()}
     combined["weighted_score"] = combined.apply(
-        lambda r: r["score"] * algo_weights.get(r["algorithm"], 0.2), axis=1
+        lambda r: r["score"] * algo_weights.get(r["algorithm"].lower(), 0.0), axis=1
     )
 
     # Small deterministic jitter to break ties consistently per user.
@@ -161,9 +166,9 @@ def blend_scores(*dfs) -> pd.DataFrame:
     return merged
 
 
-def merge_recommendations(*dfs) -> pd.DataFrame:
+def merge_recommendations(*dfs, weights: dict | None = None) -> pd.DataFrame:
     """Blend algorithm outputs and apply the production diversification step."""
-    merged = blend_scores(*dfs)
+    merged = blend_scores(*dfs, weights=weights)
     if merged.empty:
         return merged
     return _diversify_per_user(merged, TOP_N)
